@@ -121,7 +121,10 @@ st.markdown("""
 
 # --- Helper to get keys from secrets/env ---
 def get_key(name):
-    return st.secrets.get(name, os.getenv(name))
+    # Check streamlit secrets first, then os environment
+    if name in st.secrets:
+        return st.secrets[name]
+    return os.getenv(name)
 
 # --- Universal LLM Caller Function (Fixed Models & Image Support & Auto-Fallback) ---
 def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
@@ -173,7 +176,8 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
         try:
             genai.configure(api_key=api_key)
             # Updated Robust fallback list for Gemini
-            candidates = [model_name, 'gemini-2.0-flash-exp', 'gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro']
+            # gemini-1.5-flash is stable, 2.0-flash-exp is new but sometimes unstable
+            candidates = [model_name, 'gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro']
             
             for m in candidates:
                 try:
@@ -198,7 +202,7 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
             from openai import OpenAI
             client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
             
-            # Updated active Groq models
+            # Updated active Groq models (Fixes 400 Error)
             candidates = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
             
             for m in candidates:
