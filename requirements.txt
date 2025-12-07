@@ -1,7 +1,7 @@
 streamlit
-PyPDF2
 google-generativeai
 openai
 anthropic
+PyPDF2
 python-docx
 Pillow
