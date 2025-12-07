@@ -121,7 +121,10 @@ st.markdown("""
 
 # --- Helper to get keys from secrets/env ---
 def get_key(name):
-    return st.secrets.get(name, os.getenv(name))
+    # Check streamlit secrets first, then os environment
+    if name in st.secrets:
+        return st.secrets[name]
+    return os.getenv(name)
 
 # --- Universal LLM Caller Function (Fixed Models & Image Support & Auto-Fallback) ---
 def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
@@ -146,10 +149,15 @@ def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
     if gemini_key and provider != "Google Gemini":
         fallbacks.append(("Google Gemini", "gemini-2.0-flash-exp", gemini_key))
         
-    # Add Groq as fallback (Text only)
+    # Add Groq as fallback
     groq_key = get_key("GROQ_API_KEY")
-    if groq_key and provider != "Groq" and not image_data:
-        fallbacks.append(("Groq", "llama-3.3-70b-versatile", groq_key))
+    if groq_key and provider != "Groq":
+        # Check if we need image support
+        if image_data:
+             # Groq has a specific vision model we can try
+             fallbacks.append(("Groq", "llama-3.2-11b-vision-preview", groq_key))
+        else:
+             fallbacks.append(("Groq", "llama-3.3-70b-versatile", groq_key))
         
     # Add OpenAI as fallback
     openai_key = get_key("OPENAI_API_KEY")
@@ -189,28 +197,55 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
         except Exception as e:
             return f"Gemini Error: {str(e)}"
 
-    # --- Groq (Text Only) ---
+    # --- Groq ---
     elif provider == "Groq":
-        if image_data:
-            return "Error: Groq does not support image input."
-            
         try:
             from openai import OpenAI
             client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
             
-            # Updated active Groq models
-            candidates = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
+            # If image_data is present, we MUST use a vision model
+            if image_data:
+                # Convert PIL Image to Base64
+                buffered = io.BytesIO()
+                image_data.save(buffered, format="JPEG")
+                img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}}
+                        ]
+                    }
+                ]
+                # Force vision model if not already selected
+                if "vision" not in model_name:
+                    model_name = "llama-3.2-11b-vision-preview"
+                    
+            else:
+                # Text only
+                messages = [{"role": "user", "content": prompt}]
+                candidates = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
             
-            for m in candidates:
-                try:
-                    chat = client.chat.completions.create(
-                        messages=[{"role": "user", "content": prompt}],
-                        model=m,
-                    )
-                    return chat.choices[0].message.content
-                except Exception:
-                    continue
-            return "Error: Groq models unavailable."
+            # Try to make the call
+            try:
+                chat = client.chat.completions.create(
+                    messages=messages,
+                    model=model_name,
+                )
+                return chat.choices[0].message.content
+            except Exception:
+                # If specific model failed and it's text-only, try others
+                if not image_data:
+                    for m in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+                        try:
+                            chat = client.chat.completions.create(messages=messages, model=m)
+                            return chat.choices[0].message.content
+                        except:
+                            continue
+                return "Error: Groq models unavailable."
+                
         except Exception as e:
             return f"Groq Error: {str(e)}"
 
@@ -323,33 +358,33 @@ def process_uploaded_file(uploaded_file, provider, user_api_key):
             # OCR Prompt
             prompt = "Transcribe the text from this CV/Resume image exactly as it appears. Structure it clearly."
             
-            # Use Fallback Logic if Provider doesn't support image or fails
+            # Smart OCR Provider Logic
+            ocr_provider = provider
+            ocr_key = user_api_key
+            ocr_model = "gemini-2.0-flash-exp" # Default efficient vision model
+            
+            # If default provider is Groq, prefer using Groq's new vision model
+            # But if that fails or key missing, fallback to Gemini
             if provider == "Groq":
-                # Try to find a vision-capable key
-                gemini_key = get_key("GEMINI_API_KEY")
-                openai_key = get_key("OPENAI_API_KEY")
-                claude_key = get_key("ANTHROPIC_API_KEY")
+                ocr_model = "llama-3.2-11b-vision-preview"
                 
+                # Check if we have Gemini key as a robust backup
+                gemini_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
                 if gemini_key:
-                    provider = "Google Gemini"
-                    user_api_key = gemini_key
-                    model = "gemini-2.0-flash-exp"
-                elif openai_key:
-                    provider = "OpenAI"
-                    user_api_key = openai_key
-                    model = "gpt-4o"
-                elif claude_key:
-                    provider = "Anthropic (Claude)"
-                    user_api_key = claude_key
-                    model = "claude-3-opus-20240229"
-                else:
-                    return "Error: Groq cannot read images and no Gemini/OpenAI/Claude fallback key found. Please upload a PDF."
-            else:
-                model = "gemini-2.0-flash-exp" if provider == "Google Gemini" else "gpt-4o"
+                    # We can use Gemini if Groq vision fails, but let's try Groq first via call_llm
+                    pass 
+                
+            elif provider == "Google Gemini":
+                ocr_model = "gemini-2.0-flash-exp"
 
-            with st.spinner(f"Reading image using {provider}..."):
-                # call_llm handles the retries and provider switching internally if the first attempt fails
-                text = call_llm(provider, model, user_api_key, prompt, image_data=image)
+            with st.spinner(f"Reading image..."):
+                text = call_llm(ocr_provider, ocr_model, ocr_key, prompt, image_data=image)
+                
+                # If the result is an error message, try explicit fallback to Gemini 2.0
+                if text.startswith("Error"):
+                     gemini_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
+                     if gemini_key:
+                         text = call_llm("Google Gemini", "gemini-2.0-flash-exp", gemini_key, prompt, image_data=image)
             
             return text
 
@@ -374,15 +409,24 @@ def get_future_date():
     future_date = datetime.now() + timedelta(days=days_ahead)
     return future_date.strftime("%B %d, %Y")
 
-@st.dialog("Next Interview")
-def show_next_interview_popup(company, date):
-    st.success(f"You will attend another {company}'s interview on {date}.")
-    st.markdown("Good luck with your preparation!")
+@st.dialog("Explore Opportunities")
+def show_opportunities_popup():
+    st.markdown("### Choose your next interview:")
     
-    if st.button("Confirm & Reset"):
+    # Generate 3 random companies distinct from current if possible
+    all_companies = ["Google", "Amazon", "Microsoft", "Netflix", "Tesla", "SpaceX", "Adobe", "Apple", "Meta"]
+    current = st.session_state.get('target_company', '')
+    candidates = [c for c in all_companies if c != current]
+    options = random.sample(candidates, 3)
+    
+    selected_company = st.radio("Select a company:", options)
+    
+    if st.button("Confirm Selection"):
+        st.session_state.target_company = selected_company
         # Reset Logic
         for key in st.session_state.keys():
-            del st.session_state[key]
+            if key != 'target_company': # Keep the new company selection
+                del st.session_state[key]
         st.rerun()
 
 def check_cv_elements(text):
@@ -793,12 +837,20 @@ elif st.session_state.step == 'specialized_questions':
         # Generate Question
         if f"q_spec_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Technical Question {q_num}..."):
+                # Prepare a context of previous questions to ensure uniqueness
+                prev_questions = [item['question'] for item in st.session_state.history.get('specialized', [])]
+                prev_q_text = " ".join(prev_questions)
+                
                 if demo_mode:
-                    prompt = f"""Generate a SIMPLE, BEGINNER-FRIENDLY technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
-                    Keep it short and easy. Format: Question text followed by A) Option B) Option... Source: Basic Programming Concepts."""
+                    prompt = f"""Generate a UNIQUE, SIMPLE, BEGINNER-FRIENDLY technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
+                    Keep it short and easy. 
+                    Ensure this question is DIFFERENT from these previous ones: {prev_q_text}
+                    Format: Question text followed by A) Option B) Option... Source: Basic Programming Concepts."""
                 else:
-                    prompt = f"""Generate a CHALLENGING, IN-DEPTH technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
-                    Focus on core concepts. Format: Question text followed by A) Option B) Option... Source: Cracking the Coding Interview."""
+                    prompt = f"""Generate a UNIQUE, CHALLENGING, IN-DEPTH technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
+                    Focus on core concepts. 
+                    Ensure this question is DIFFERENT from these previous ones: {prev_q_text}
+                    Format: Question text followed by A) Option B) Option... Source: Cracking the Coding Interview."""
                 
                 q_text = call_llm(provider, "llama-3.3-70b-versatile", user_api_key, prompt)
                 st.session_state[f"q_spec_{q_num}"] = q_text
@@ -852,10 +904,18 @@ elif st.session_state.step == 'attitude_questions':
         
         if f"q_att_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Behavioral Question {q_num}..."):
+                # Prepare context of previous questions
+                prev_questions = [item['question'] for item in st.session_state.history.get('attitude', [])]
+                prev_q_text = " ".join(prev_questions)
+                
                 if demo_mode:
-                    prompt = f"Generate a SHORT, SIMPLE behavioral interview question #{q_num} (Teamwork/Conflict/Ethics). Multiple Choice format."
+                    prompt = f"""Generate a UNIQUE, SHORT, SIMPLE behavioral interview question #{q_num} (Teamwork/Conflict/Ethics). 
+                    Ensure it is DIFFERENT from: {prev_q_text}.
+                    Multiple Choice format."""
                 else:
-                    prompt = f"Generate a COMPLEX behavioral interview question #{q_num} (Teamwork/Conflict/Ethics). Multiple Choice format."
+                    prompt = f"""Generate a UNIQUE, COMPLEX behavioral interview question #{q_num} (Teamwork/Conflict/Ethics). 
+                    Ensure it is DIFFERENT from: {prev_q_text}.
+                    Multiple Choice format."""
                     
                 q_text = call_llm(provider, "llama-3.3-70b-versatile", user_api_key, prompt)
                 st.session_state[f"q_att_{q_num}"] = q_text
@@ -906,10 +966,18 @@ elif st.session_state.step == 'coding_questions':
         
         if f"q_code_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Coding Problem {q_num}..."):
+                # Prepare context of previous questions
+                prev_questions = [item['question'] for item in st.session_state.history.get('coding', [])]
+                prev_q_text = " ".join(prev_questions)
+                
                 if demo_mode:
-                    prompt = f"Generate an EASY coding algorithm problem (e.g., FizzBuzz, String Reversal) for a {position}. Short problem statement."
+                    prompt = f"""Generate a UNIQUE, EASY coding algorithm problem (e.g., FizzBuzz, String Reversal) for a {position}. 
+                    Ensure it is DIFFERENT from: {prev_q_text}.
+                    Short problem statement."""
                 else:
-                    prompt = f"Generate a MEDIUM/HARD coding algorithm problem (e.g., Graphs, DP) for a {position}. Detailed problem statement."
+                    prompt = f"""Generate a UNIQUE, MEDIUM/HARD coding algorithm problem (e.g., Graphs, DP) for a {position}. 
+                    Ensure it is DIFFERENT from: {prev_q_text}.
+                    Detailed problem statement."""
                     
                 q_text = call_llm(provider, "llama-3.3-70b-versatile", user_api_key, prompt)
                 st.session_state[f"q_code_{q_num}"] = q_text
@@ -1030,8 +1098,5 @@ elif st.session_state.step == 'evaluation':
         st.markdown("### 📝 AI Feedback & Suggestions")
         st.markdown(st.session_state.final_feedback)
         
-        if st.button("New Interview"):
-            # Random new company and date for next time
-            next_company = random.choice(["Google", "Amazon", "Microsoft", "Netflix", "Tesla", "SpaceX", "Adobe"])
-            next_date = get_future_date()
-            show_next_interview_popup(next_company, next_date)
+        if st.button("Opportunities"):
+            show_opportunities_popup()
