@@ -121,10 +121,7 @@ st.markdown("""
 
 # --- Helper to get keys from secrets/env ---
 def get_key(name):
-    # Check streamlit secrets first, then os environment
-    if name in st.secrets:
-        return st.secrets[name]
-    return os.getenv(name)
+    return st.secrets.get(name, os.getenv(name))
 
 # --- Universal LLM Caller Function (Fixed Models & Image Support & Auto-Fallback) ---
 def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
@@ -176,8 +173,7 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
         try:
             genai.configure(api_key=api_key)
             # Updated Robust fallback list for Gemini
-            # gemini-1.5-flash is stable, 2.0-flash-exp is new but sometimes unstable
-            candidates = [model_name, 'gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro']
+            candidates = [model_name, 'gemini-2.0-flash-exp', 'gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro']
             
             for m in candidates:
                 try:
@@ -202,7 +198,7 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
             from openai import OpenAI
             client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
             
-            # Updated active Groq models (Fixes 400 Error)
+            # Updated active Groq models
             candidates = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
             
             for m in candidates:
@@ -327,30 +323,33 @@ def process_uploaded_file(uploaded_file, provider, user_api_key):
             # OCR Prompt
             prompt = "Transcribe the text from this CV/Resume image exactly as it appears. Structure it clearly."
             
-            # Special Handling for Groq (No Vision) -> Fallback to Gemini if possible
-            ocr_provider = provider
-            ocr_key = user_api_key
-            # Updated default fallback model to 2.0-flash-exp (Fixes 404 on 1.5-flash)
-            ocr_model = "gemini-2.0-flash-exp" 
-            
+            # Use Fallback Logic if Provider doesn't support image or fails
             if provider == "Groq":
-                # Check for Gemini key in secrets for fallback
-                gemini_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
+                # Try to find a vision-capable key
+                gemini_key = get_key("GEMINI_API_KEY")
+                openai_key = get_key("OPENAI_API_KEY")
+                claude_key = get_key("ANTHROPIC_API_KEY")
+                
                 if gemini_key:
-                    ocr_provider = "Google Gemini"
-                    ocr_key = gemini_key
+                    provider = "Google Gemini"
+                    user_api_key = gemini_key
+                    model = "gemini-2.0-flash-exp"
+                elif openai_key:
+                    provider = "OpenAI"
+                    user_api_key = openai_key
+                    model = "gpt-4o"
+                elif claude_key:
+                    provider = "Anthropic (Claude)"
+                    user_api_key = claude_key
+                    model = "claude-3-opus-20240229"
                 else:
-                    # Try OpenAI if Gemini missing
-                    openai_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
-                    if openai_key:
-                        ocr_provider = "OpenAI"
-                        ocr_key = openai_key
-                        ocr_model = "gpt-4o"
-                    else:
-                        return "Error: Groq cannot read images and no Gemini/OpenAI fallback key found. Please upload a PDF."
+                    return "Error: Groq cannot read images and no Gemini/OpenAI/Claude fallback key found. Please upload a PDF."
+            else:
+                model = "gemini-2.0-flash-exp" if provider == "Google Gemini" else "gpt-4o"
 
-            with st.spinner(f"Reading image using {ocr_provider}..."):
-                text = call_llm(ocr_provider, ocr_model, ocr_key, prompt, image_data=image)
+            with st.spinner(f"Reading image using {provider}..."):
+                # call_llm handles the retries and provider switching internally if the first attempt fails
+                text = call_llm(provider, model, user_api_key, prompt, image_data=image)
             
             return text
 
@@ -375,24 +374,15 @@ def get_future_date():
     future_date = datetime.now() + timedelta(days=days_ahead)
     return future_date.strftime("%B %d, %Y")
 
-@st.dialog("Explore Opportunities")
-def show_opportunities_popup():
-    st.markdown("### Choose your next interview:")
+@st.dialog("Next Interview")
+def show_next_interview_popup(company, date):
+    st.success(f"You will attend another {company}'s interview on {date}.")
+    st.markdown("Good luck with your preparation!")
     
-    # Generate 3 random companies distinct from current if possible
-    all_companies = ["Google", "Amazon", "Microsoft", "Netflix", "Tesla", "SpaceX", "Adobe", "Apple", "Meta"]
-    current = st.session_state.get('target_company', '')
-    candidates = [c for c in all_companies if c != current]
-    options = random.sample(candidates, 3)
-    
-    selected_company = st.radio("Select a company:", options)
-    
-    if st.button("Confirm Selection"):
-        st.session_state.target_company = selected_company
+    if st.button("Confirm & Reset"):
         # Reset Logic
         for key in st.session_state.keys():
-            if key != 'target_company': # Keep the new company selection
-                del st.session_state[key]
+            del st.session_state[key]
         st.rerun()
 
 def check_cv_elements(text):
@@ -803,20 +793,12 @@ elif st.session_state.step == 'specialized_questions':
         # Generate Question
         if f"q_spec_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Technical Question {q_num}..."):
-                # Prepare a context of previous questions to ensure uniqueness
-                prev_questions = [item['question'] for item in st.session_state.history.get('specialized', [])]
-                prev_q_text = " ".join(prev_questions)
-                
                 if demo_mode:
-                    prompt = f"""Generate a UNIQUE, SIMPLE, BEGINNER-FRIENDLY technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
-                    Keep it short and easy. 
-                    Ensure this question is DIFFERENT from these previous ones: {prev_q_text}
-                    Format: Question text followed by A) Option B) Option... Source: Basic Programming Concepts."""
+                    prompt = f"""Generate a SIMPLE, BEGINNER-FRIENDLY technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
+                    Keep it short and easy. Format: Question text followed by A) Option B) Option... Source: Basic Programming Concepts."""
                 else:
-                    prompt = f"""Generate a UNIQUE, CHALLENGING, IN-DEPTH technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
-                    Focus on core concepts. 
-                    Ensure this question is DIFFERENT from these previous ones: {prev_q_text}
-                    Format: Question text followed by A) Option B) Option... Source: Cracking the Coding Interview."""
+                    prompt = f"""Generate a CHALLENGING, IN-DEPTH technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
+                    Focus on core concepts. Format: Question text followed by A) Option B) Option... Source: Cracking the Coding Interview."""
                 
                 q_text = call_llm(provider, "llama-3.3-70b-versatile", user_api_key, prompt)
                 st.session_state[f"q_spec_{q_num}"] = q_text
@@ -870,18 +852,10 @@ elif st.session_state.step == 'attitude_questions':
         
         if f"q_att_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Behavioral Question {q_num}..."):
-                # Prepare context of previous questions
-                prev_questions = [item['question'] for item in st.session_state.history.get('attitude', [])]
-                prev_q_text = " ".join(prev_questions)
-                
                 if demo_mode:
-                    prompt = f"""Generate a UNIQUE, SHORT, SIMPLE behavioral interview question #{q_num} (Teamwork/Conflict/Ethics). 
-                    Ensure it is DIFFERENT from: {prev_q_text}.
-                    Multiple Choice format."""
+                    prompt = f"Generate a SHORT, SIMPLE behavioral interview question #{q_num} (Teamwork/Conflict/Ethics). Multiple Choice format."
                 else:
-                    prompt = f"""Generate a UNIQUE, COMPLEX behavioral interview question #{q_num} (Teamwork/Conflict/Ethics). 
-                    Ensure it is DIFFERENT from: {prev_q_text}.
-                    Multiple Choice format."""
+                    prompt = f"Generate a COMPLEX behavioral interview question #{q_num} (Teamwork/Conflict/Ethics). Multiple Choice format."
                     
                 q_text = call_llm(provider, "llama-3.3-70b-versatile", user_api_key, prompt)
                 st.session_state[f"q_att_{q_num}"] = q_text
@@ -932,18 +906,10 @@ elif st.session_state.step == 'coding_questions':
         
         if f"q_code_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Coding Problem {q_num}..."):
-                # Prepare context of previous questions
-                prev_questions = [item['question'] for item in st.session_state.history.get('coding', [])]
-                prev_q_text = " ".join(prev_questions)
-                
                 if demo_mode:
-                    prompt = f"""Generate a UNIQUE, EASY coding algorithm problem (e.g., FizzBuzz, String Reversal) for a {position}. 
-                    Ensure it is DIFFERENT from: {prev_q_text}.
-                    Short problem statement."""
+                    prompt = f"Generate an EASY coding algorithm problem (e.g., FizzBuzz, String Reversal) for a {position}. Short problem statement."
                 else:
-                    prompt = f"""Generate a UNIQUE, MEDIUM/HARD coding algorithm problem (e.g., Graphs, DP) for a {position}. 
-                    Ensure it is DIFFERENT from: {prev_q_text}.
-                    Detailed problem statement."""
+                    prompt = f"Generate a MEDIUM/HARD coding algorithm problem (e.g., Graphs, DP) for a {position}. Detailed problem statement."
                     
                 q_text = call_llm(provider, "llama-3.3-70b-versatile", user_api_key, prompt)
                 st.session_state[f"q_code_{q_num}"] = q_text
@@ -1064,5 +1030,8 @@ elif st.session_state.step == 'evaluation':
         st.markdown("### 📝 AI Feedback & Suggestions")
         st.markdown(st.session_state.final_feedback)
         
-        if st.button("Opportunities"):
-            show_opportunities_popup()
+        if st.button("New Interview"):
+            # Random new company and date for next time
+            next_company = random.choice(["Google", "Amazon", "Microsoft", "Netflix", "Tesla", "SpaceX", "Adobe"])
+            next_date = get_future_date()
+            show_next_interview_popup(next_company, next_date)
