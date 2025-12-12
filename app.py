@@ -393,19 +393,73 @@ def get_job_description(position, company):
 
 def get_company_story(company, position):
     """
-    Returns a brief, simulated story about the company.
+    Returns a brief, simulated story about the company (300-word essay, justified).
     """
+    # Extended, justified text for the introduction
     stories = {
-        "NVIDIA": "NVIDIA pioneered accelerated computing to tackle challenges no one else can solve. Our work in AI and the metaverse is transforming the world's largest industries and profoundly impacting society. Applying for **{position}** means you will be at the forefront of this acceleration.",
-        "Intel": "Intel is an industry leader, creating world-changing technology that enables global progress and enriches lives. We stand at the brink of a new era where everything is fueled by silicon. Your **{position}** expertise is vital to building our next generation of compute platforms.",
-        "IBM": "IBM integrates technology and expertise, providing infrastructure, software (including Red Hat) and consulting services for clients as they pursue the digital transformation of the world's mission-critical businesses. As a **{position}**, you will contribute directly to these mission-critical systems.",
-        "AMD": "AMD drives innovation in high-performance computing, graphics and visualization technologies. Billions of people, leading Fortune 500 businesses and cutting-edge scientific research institutions around the world rely on AMD technology. Your role as **{position}** will help push the boundaries of performance.",
-        "Meta": "Meta builds technologies that help people connect, find communities, and grow businesses (Facebook, Instagram, WhatsApp). When Facebook launched in 2004, it changed the way people connect. Your **{position}** skills will help scale our platforms to billions of users globally.",
-        "Microsoft": "Microsoft's mission is to empower every person and every organization on the planet to achieve more. As a **{position}** here, you will contribute to products that shape the future of productivity, cloud computing, and AI.",
-        "VinAI Research": "VinAI Research is a leading AI research lab in Southeast Asia, focused on pushing the boundaries of AI, especially in computer vision and NLP. Your **{position}** role will involve groundbreaking research and development in a dynamic environment.",
-        "xAI": "xAI's mission is to understand the true nature of the universe. Working on **{position}** here means tackling fundamental questions in AI safety, development, and reasoning at the cutting edge of deep learning."
+        "NVIDIA": f"""
+        <div style='text-align: justify;'>
+        NVIDIA pioneered the era of accelerated computing, fundamentally transforming how the world approaches technology and innovation. Founded by **Jensen Huang**, the company's headquarters are currently located at 2788 San Tomas Expressway, Santa Clara, California. This is the birthplace of the Graphics Processing Unit (GPU), a breakthrough achievement that initially revolutionized the gaming industry but quickly became the engine driving the Artificial Intelligence revolution. Under the leadership of **Jensen Huang** (CEO), NVIDIA has achieved remarkable success, with its chips becoming the gold standard for deep learning, scientific computing, and massive data center operations.
+        <br><br>
+        The company’s current focus extends beyond hardware; it is building a full-stack data center scale computing platform, encompassing AI software frameworks, networking, and services like NVIDIA Omniverse for industrial digitalization. The achievement of creating the CUDA parallel computing platform stands as a cornerstone of modern machine learning. Key figures, including Executive Vice President of Operations **Jay Puri** and Chief Scientist **Bill Dally**, drive the technological and operational vision. The dedication to pushing computational boundaries means that applying for a role like **{position}** is an invitation to work on problems that define the next decade of technology, from autonomous vehicles and robotics to massive language models. We seek candidates who share our passion for solving the unsolvable.
+        </div>
+        """,
+        "Intel": f"""
+        <div style='text-align: justify;'>
+        Intel has been the bedrock of the computing world for over five decades, powering everything from personal computers to massive enterprise servers. The company's headquarters are situated at 2200 Mission College Blvd, Santa Clara, California, right in the heart of Silicon Valley. Founded by semiconductor pioneers Robert Noyce and Gordon Moore, the company has defined the pace of technological advancement through 'Moore's Law'. Intel’s most remarkable achievement lies in perfecting the manufacturing and design of microprocessors, including the groundbreaking invention of the x86 architecture.
+        <br><br>
+        Current leadership under CEO **Pat Gelsinger** is focused on driving the IDM 2.0 strategy, investing heavily in advanced manufacturing capacity and regaining technological leadership. Other head figures like Executive Vice President **Sandra Rivera** steer crucial business segments. Intel remains committed to innovation across CPU, GPU, and AI acceleration technologies. Joining us as a **{position}** means contributing to a critical mission: maintaining global technological relevance and building a sustainable, high-performance future for silicon. We look for individuals ready to tackle complex challenges and uphold a legacy of engineering excellence.
+        </div>
+        """,
+        "IBM": f"""
+        <div style='text-align: justify;'>
+        International Business Machines (IBM) is one of the world's oldest and most respected technology companies, with a history spanning over a century. Its primary executive offices are located at 1 North Castle Drive, Armonk, New York. IBM's legacy is built on a series of incredible achievements, including the development of the magnetic stripe card, the relational database, and, more recently, leadership in quantum computing and enterprise AI solutions. The company is currently led by Chairman and CEO **Arvind Krishna**, with key strategic guidance from figures like Senior Vice President **James Whitehurst**.
+        <br><br>
+        IBM's strategy centers on Hybrid Cloud and Artificial Intelligence, leveraging platforms like Red Hat and Watson to solve the most complex problems faced by businesses and governments worldwide. Our commitment to fundamental research is unparalleled, boasting more US patents than any other company for over 25 consecutive years. Applying for the **{position}** role offers the chance to work within a research-driven culture where infrastructure, software, and consulting converge to deliver mission-critical solutions, emphasizing stability, innovation, and ethical deployment of new technologies.
+        </div>
+        """,
+        "AMD": f"""
+        <div style='text-align: justify;'>
+        Advanced Micro Devices (AMD) is a high-performance computing and graphics powerhouse, relentless in its pursuit of technological boundaries. The company is headquartered at 2485 Augustine Drive, Santa Clara, California. AMD's defining achievements include the development of the x86-64 instruction set (which became industry standard) and the recent triumph of the Zen microarchitecture, which reshaped competition in the CPU market. Under the visionary leadership of **Dr. Lisa Su** (Chair and CEO), AMD has achieved unprecedented market growth and technological prestige.
+        <br><br>
+        Other key head figures include Executive Vice President **Rick Bergman**, who oversees Product Management. AMD's focus areas encompass high-performance processors for servers (EPYC), consumer desktops (Ryzen), and professional graphics/AI acceleration (Radeon and Instinct). Joining us as a **{position}** means embracing a challenger mindset in a field dominated by giants. We seek ambitious individuals who are dedicated to pushing clock speeds, maximizing efficiency, and delivering breakthrough performance solutions across gaming, data centers, and advanced AI systems globally.
+        </div>
+        """,
+        "Meta": f"""
+        <div style='text-align: justify;'>
+        Meta Platforms, Inc., formerly Facebook, is dedicated to building technologies that help people connect, find communities, and grow businesses across its family of apps, including Facebook, Instagram, and WhatsApp. The company's headquarters are located at 1 Hacker Way, Menlo Park, California. Meta's most notable achievement is connecting billions of people globally and establishing the fundamental communication methods of the 21st century. Its current and ambitious mission is to bring the metaverse to life.
+        <br><br>
+        The company is helmed by founder and CEO **Mark Zuckerberg**, with key contributions from figures like **Javier Olivan** (COO) and **Andrew Bosworth** (CTO). Meta has invested heavily in Artificial Intelligence (AI) and Machine Learning (ML) through its fundamental research division, FAIR, driving innovations in computer vision, generative AI, and virtual reality infrastructure (Oculus/Reality Labs). As a **{position}** developer, you would be integral to scaling these massive platforms, ensuring high performance, and pioneering the digital, immersive future of human interaction. We value engineers who can thrive in rapid iteration cycles and build solutions used by the entire world.
+        </div>
+        """,
+        "Microsoft": f"""
+        <div style='text-align: justify;'>
+        Microsoft is a global technology leader whose mission is to empower every person and every organization on the planet to achieve more. The company's corporate campus, often called the 'Redmond Campus,' is located at One Microsoft Way, Redmond, Washington. Microsoft's achievements are foundational to modern computing, including the creation of MS-DOS, Windows, and the dominance of cloud computing through Azure. It continues to redefine productivity, creativity, and enterprise software.
+        <br><br>
+        Leading the company is Chairman and CEO **Satya Nadella**, who has successfully steered Microsoft into a cloud-first, AI-driven era. Other prominent figures include **Brad Smith** (Vice Chair and President) and **Amy Hood** (CFO). Microsoft is a major investor and developer in AI, integrating large language models into its entire product suite. Applying for the **{position}** position means joining a collaborative environment focused on massive-scale AI systems, cybersecurity, and cloud infrastructure. We look for individuals who are passionate about building accessible technology that makes a tangible, positive impact on the world.
+        </div>
+        """,
+        "VinAI Research": f"""
+        <div style='text-align: justify;'>
+        VinAI Research is a leading Artificial Intelligence research lab based in Vietnam, committed to advancing the boundaries of AI, particularly in Computer Vision, Natural Language Processing, and Machine Learning. The research facility is strategically located at **Vinhomes Grand Park, Ho Chi Minh City, Vietnam**, positioning it as a technological hub in Southeast Asia. Founded with a vision to develop world-class AI products and talent, VinAI has quickly established itself with remarkable achievements in publishing at top-tier international conferences like CVPR and NeurIPS.
+        <br><br>
+        The lab is driven by the direction of its Director, **Dr. Bui Hai Hung**, and a team of accomplished international scientists and engineers. VinAI’s current focus involves applying cutting-edge research to real-world applications in areas such as smart mobility, healthcare, and security for millions of users. Joining VinAI as a **{position}** means contributing to a high-energy, ambitious environment where complex research challenges are tackled daily. We look for researchers and engineers who thrive on intellectual rigor and are dedicated to putting Vietnam on the global AI map through innovative, ethical, and practical solutions.
+        </div>
+        """,
+        "xAI": f"""
+        <div style='text-align: justify;'>
+        xAI is a pioneering artificial intelligence company founded by **Elon Musk** with the stated mission to understand the true nature of the universe. The company operates from its main office located in the **Memphis, Tennessee** area, leveraging the region's infrastructure to build massive supercomputing clusters. While being a relatively new entity, xAI has quickly gained global recognition for its ambitious goals and unique perspective on AI safety and development.
+        <br><br>
+        The company’s rapid achievements include the development of Grok, a powerful large language model designed to offer timely and accurate information. Key figures besides founder **Elon Musk** include a core team of top engineers and researchers from DeepMind, Google, and Microsoft. The work culture is intense, focusing on foundational AI research and the development of Artificial General Intelligence (AGI). Applying for the **{position}** role means you will be working at a high-stakes, rapid-development organization where the challenge is not merely iteration, but fundamentally redefining what AI is capable of, demanding high commitment and profound intellectual depth.
+        </div>
+        """
     }
-    return stories.get(company, f"{company} is a leading technology firm dedicated to innovation and excellence in the **{position}** field. We value creativity, integrity, and a passion for building the future.").format(position=position)
+    # Using markdown and embedded style for justified text display
+    return stories.get(company, f"""
+    <div style='text-align: justify;'>
+    {company} is a leading technology firm dedicated to innovation and excellence in the **{position}** field. We value creativity, integrity, and a passion for building the future. While our detailed history and figures are proprietary, rest assured, you would be working alongside top talent at our main offices. We seek candidates who are ready to make their own remarkable achievements.
+    </div>
+    """)
 
 def get_future_date():
     days_ahead = random.randint(7, 30)
@@ -866,7 +920,8 @@ elif st.session_state.step == 'specialized_intro':
     with col1:
         # 1. Brief story about the company
         st.markdown("### 📖 Our Story")
-        st.write(get_company_story(company, position))
+        # Use st.markdown here to render the HTML/justified text from get_company_story
+        st.markdown(get_company_story(company, position), unsafe_allow_html=True)
         
         # 2. Job description
         st.markdown("### 📋 The Challenge Ahead")
