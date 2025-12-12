@@ -70,7 +70,7 @@ st.markdown("""
         color: #f8fafc;
     }
     
-    /* Start/Reset Buttons */
+    /* Buttons */
     .stButton > button {
         background-color: #3b82f6;
         color: white;
@@ -83,16 +83,15 @@ st.markdown("""
     }
 
     /* Custom CSS to center buttons in sidebar columns */
-    .stButton {
-        display: flex;
-        justify-content: center;
+    /* This ensures buttons take full width of their centering column */
+    div[data-testid="stSidebar"] .stButton > button {
         width: 100%;
     }
-    /* Ensure the button element itself takes width if needed, though Streamlit usually handles this */
-    .stButton > button {
-        width: 80%; /* Adjusted width for centering effect */
+    div[data-testid="stSidebar"] .stButton {
+        display: flex;
+        justify-content: center;
     }
-    
+
     /* Custom Timer Logic */
     .timer-display {
         position: fixed;
@@ -129,6 +128,39 @@ st.markdown("""
     .stRadio label {
         color: #e2e8f0 !important;
     }
+
+    /* Score Card Styles */
+    .score-container {
+        display: flex;
+        align-items: center;
+        margin: 10px 0;
+    }
+    .score-label {
+        width: 150px;
+        font-weight: bold;
+        color: #94a3b8;
+    }
+    .score-bar-bg {
+        flex-grow: 1;
+        height: 20px;
+        background-color: #334155;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-right: 10px;
+    }
+    .score-bar {
+        height: 100%;
+        border-radius: 10px;
+        transition: width 0.5s ease-in-out;
+    }
+    .score-text {
+        font-weight: bold;
+        width: 40px;
+        text-align: right;
+    }
+    .bar-good { background-color: #10b981; } /* Green */
+    .bar-ok { background-color: #fbbf24; }   /* Yellow */
+    .bar-bad { background-color: #ef4444; }  /* Red */
     </style>
     """, unsafe_allow_html=True)
 
@@ -139,12 +171,38 @@ def get_key(name):
         return st.secrets[name]
     return os.getenv(name)
 
+# --- Image Mapping ---
+def get_company_image_url(company):
+    """Returns a placeholder URL corresponding to the chosen company."""
+    # Note: These URLs are placeholders for actual company images/logos.
+    IMAGE_MAP = {
+        "Intel": "https://placehold.co/800x400/0071C5/FFFFFF?text=INTEL+HEADQUARTERS", # Blue/White
+        "META": "https://placehold.co/800x400/0078FF/FFFFFF?text=META+CAMPUS", # Meta Blue
+        "AMD": "https://placehold.co/800x400/AF272F/FFFFFF?text=AMD+INNOVATION+CENTER", # AMD Red
+        "NVIDIA": "https://placehold.co/800x400/76B900/FFFFFF?text=NVIDIA+HQ", # NVIDIA Green
+        "IBM": "https://placehold.co/800x400/0063FF/FFFFFF?text=IBM+RESEARCH", # IBM Blue
+        "Microsoft": "https://placehold.co/800x400/00A4EF/FFFFFF?text=MICROSOFT+CAMPUS", # Microsoft Blue
+        "VinAI Research": "https://placehold.co/800x400/004B8E/FFFFFF?text=VINAI+RESEARCH", # VinAI Blue
+        "xAI": "https://placehold.co/800x400/1E293B/FFFFFF?text=xAI+RESEARCH" # Dark/White
+    }
+    # Use a more thematic placeholder if the company is not in the map
+    return IMAGE_MAP.get(company, f"https://placehold.co/800x400/475569/f8fafc?text={company}+Tech+Career")
+
+def get_company_image_html(company):
+    """Generates the HTML for the company image placeholder."""
+    image_url = get_company_image_url(company)
+    return f"""
+    <div style="width: 100%; max-width: 800px; height: 350px; margin: 0 auto; overflow: hidden; border-radius: 15px; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.5);">
+        <img src="{image_url}" style="width: 100%; height: 100%; object-fit: cover;" alt="{company} Office">
+    </div>
+    """
+
+
 # --- Universal LLM Caller Function (Fixed Models & Image Support & Auto-Fallback) ---
 def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
     """
     Handles Text AND Image inputs for OCR and Interviewing.
     Includes auto-fallback to other providers if the primary one fails.
-    The `model_name` acts as a request signal (e.g., 'gemini-1.5-pro' -> high quality needed).
     """
     
     # 1. Attempt Primary Provider
@@ -152,32 +210,26 @@ def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
     if result and not result.startswith("Error"):
         return result
     
-    # 2. Auto-Fallback Logic
-    # If the primary failed, we try others immediately without just printing.
+    # 2. Auto-Fallback Logic (Only Gemini and Groq remain)
     
     # Define fallback priority (check if keys exist)
     fallbacks = []
     
-    # Define capable models for fallbacks
     # Failsafe 1: Gemini (Stable/Capable)
     gemini_key = get_key("GEMINI_API_KEY")
     if gemini_key and provider != "Google Gemini":
         fallbacks.append(("Google Gemini", "gemini-1.5-pro", gemini_key)) 
         
-    # Failsafe 2: Groq (Fast alternative) - OpenAI removed
+    # Failsafe 2: Groq (Fast alternative)
     groq_key = get_key("GROQ_API_KEY")
     if groq_key and provider != "Groq":
-        # Check if we need image support
         if image_data:
              fallbacks.append(("Groq", "llama-3.2-11b-vision-preview", groq_key))
         else:
              fallbacks.append(("Groq", "llama-3.1-70b-versatile", groq_key))
              
-    # NOTE: OpenAI fallback removed as requested
-        
     # Attempt fallbacks
     for fb_provider, fb_model, fb_key in fallbacks:
-        # Don't retry the same provider if it just failed
         if fb_provider == provider: 
             continue
             
@@ -196,7 +248,6 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
     if provider == "Google Gemini":
         try:
             genai.configure(api_key=api_key)
-            # Prioritize models based on the request 
             candidates = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.0-pro']
             
             if model_name not in candidates:
@@ -222,14 +273,14 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
             from openai import OpenAI
             client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
             
-            # Use stable models explicitly
             groq_text_model = "llama-3.1-70b-versatile"
             groq_vision_model = "llama-3.2-11b-vision-preview"
 
             messages = []
             
             if image_data:
-                # Convert PIL Image to Base64
+                from PIL import Image # Ensure PIL is available
+                # Groq requires Image upload logic
                 buffered = io.BytesIO()
                 image_data.save(buffered, format="JPEG")
                 img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
@@ -245,11 +296,9 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
                 ]
                 model_to_use = groq_vision_model
             else:
-                # Text only
                 messages = [{"role": "user", "content": prompt}]
                 model_to_use = groq_text_model
             
-            # Try to make the call
             try:
                 chat = client.chat.completions.create(
                     messages=messages,
@@ -258,7 +307,6 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
                 return chat.choices[0].message.content
             except Exception:
                 if not image_data:
-                    # Added more fallback models for robustness (using Llama 3.1 for stability)
                     fallback_models = [
                         "llama-3.1-8b-instant",
                         "mixtral-8x7b-32768"
@@ -274,46 +322,9 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
         except Exception as e:
             return f"Groq Error: {str(e)}"
 
-    # --- OpenAI ---
+    # --- OpenAI (Section kept for context, though disabled by key removal) ---
     elif provider == "OpenAI":
-        # This section remains for consistency but is excluded from primary/fallback logic
-        # by removing the key check/assignment in the sidebar/call_llm.
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
-            
-            if image_data:
-                # Convert PIL Image to Base64
-                buffered = io.BytesIO()
-                image_data.save(buffered, format="JPEG")
-                img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}}
-                        ]
-                    }
-                ]
-                # If image, use a vision-capable model
-                model_to_use = "gpt-4o" 
-            else:
-                messages = [{"role": "user", "content": prompt}]
-                # Default to a stable, fast model
-                model_to_use = "gpt-3.5-turbo" if model_name == "default" or "gpt" not in model_name else model_name
-
-            response = client.chat.completions.create(
-                model=model_to_use,
-                messages=messages
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"OpenAI Error: {str(e)}"
-
-    # --- Claude ---
-    # REMOVED ANTHROPIC/CLAUDE LOGIC TO AVOID COSTS
+        return "Error: OpenAI provider is disabled."
             
     return "Error: Unknown provider"
 
@@ -358,12 +369,9 @@ def process_uploaded_file(uploaded_file, provider, user_api_key):
             
             # OCR Prompt
             prompt = "Transcribe the text from this CV/Resume image exactly as it appears. Structure it clearly."
-            
-            # Use a capable, fast vision model signal
             ocr_model_signal = "gemini-1.5-flash" 
             
             with st.spinner(f"Reading image..."):
-                # Use the main call_llm for robust fallback
                 text = call_llm(provider, ocr_model_signal, user_api_key, prompt, image_data=image)
             
             return text
@@ -374,7 +382,6 @@ def process_uploaded_file(uploaded_file, provider, user_api_key):
 
 def get_job_description(position, company):
     return f"""
-    ### {company} Recruitment
     **Role:** {position}
     **Key Requirements:**
     * Deep understanding of {position} core concepts.
@@ -393,7 +400,10 @@ def get_company_story(company, position):
         "Intel": "Intel is an industry leader, creating world-changing technology that enables global progress and enriches lives. We stand at the brink of a new era where everything is fueled by silicon. Your **{position}** expertise is vital to building our next generation of compute platforms.",
         "IBM": "IBM integrates technology and expertise, providing infrastructure, software (including Red Hat) and consulting services for clients as they pursue the digital transformation of the world's mission-critical businesses. As a **{position}**, you will contribute directly to these mission-critical systems.",
         "AMD": "AMD drives innovation in high-performance computing, graphics and visualization technologies. Billions of people, leading Fortune 500 businesses and cutting-edge scientific research institutions around the world rely on AMD technology. Your role as **{position}** will help push the boundaries of performance.",
-        "Meta": "Meta builds technologies that help people connect, find communities, and grow businesses (Facebook, Instagram, WhatsApp). When Facebook launched in 2004, it changed the way people connect. Your **{position}** skills will help scale our platforms to billions of users globally."
+        "Meta": "Meta builds technologies that help people connect, find communities, and grow businesses (Facebook, Instagram, WhatsApp). When Facebook launched in 2004, it changed the way people connect. Your **{position}** skills will help scale our platforms to billions of users globally.",
+        "Microsoft": "Microsoft's mission is to empower every person and every organization on the planet to achieve more. As a **{position}** here, you will contribute to products that shape the future of productivity, cloud computing, and AI.",
+        "VinAI Research": "VinAI Research is a leading AI research lab in Southeast Asia, focused on pushing the boundaries of AI, especially in computer vision and NLP. Your **{position}** role will involve groundbreaking research and development in a dynamic environment.",
+        "xAI": "xAI's mission is to understand the true nature of the universe. Working on **{position}** here means tackling fundamental questions in AI safety, development, and reasoning at the cutting edge of deep learning."
     }
     return stories.get(company, f"{company} is a leading technology firm dedicated to innovation and excellence in the **{position}** field. We value creativity, integrity, and a passion for building the future.").format(position=position)
 
@@ -407,12 +417,9 @@ def check_cv_elements(text):
     missing = []
     text_lower = text.lower()
     
-    # Simple heuristic to detect Vietnamese: check for specific characters
-    # chars like: ư, ơ, đ, and accents
     vi_chars = "àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ"
     vi_char_count = sum(1 for char in text_lower if char in vi_chars)
     
-    # Threshold to decide language (e.g., if > 3 Vietnamese characters found)
     is_vietnamese = vi_char_count > 3
     detected_language = "Vietnamese" if is_vietnamese else "English"
     
@@ -421,13 +428,10 @@ def check_cv_elements(text):
         missing.append("Contact Info (Email/Phone)")
         
     if is_vietnamese:
-        # --- VIETNAMESE CRITERIA ---
-        # 2. Education
         edu_keywords = ["học vấn", "trường", "đại học", "cao đẳng", "bằng cấp", "giáo dục", "chứng chỉ"]
         if not any(kw in text_lower for kw in edu_keywords):
             missing.append("Học vấn (Education)")
             
-        # 3. Experience (Expanded for Students/Freshers)
         exp_keywords = [
             "kinh nghiệm", "làm việc", "dự án", "hoạt động", "sản phẩm", "thực tập",
             "mục tiêu", "kỹ năng", "ưu điểm", "thành tích", "giới thiệu"
@@ -436,13 +440,10 @@ def check_cv_elements(text):
             missing.append("Kinh nghiệm (Experience)")
             
     else:
-        # --- ENGLISH CRITERIA ---
-        # 2. Education
         edu_keywords = ["education", "university", "degree", "college", "school", "academic"]
         if not any(kw in text_lower for kw in edu_keywords):
             missing.append("Education")
             
-        # 3. Experience (Expanded for Students)
         exp_keywords = ["experience", "work", "employment", "project", "activity", "internship", "skills", "summary", "objective"]
         if not any(kw in text_lower for kw in exp_keywords):
             missing.append("Experience")
@@ -452,26 +453,38 @@ def check_cv_elements(text):
 def parse_question_content(raw_text):
     """
     Parses LLM output to separate Question Text from Options (A, B, C, D).
+    Also re-formats options to A. B. C. D. style.
     Returns: (question_text, options_list)
     """
-    # Try to find options pattern like "A) " or "A. "
-    # If found, split. If not, return raw text and empty options (implies text input needed)
-    
-    # Basic Split by newline to find options
     lines = raw_text.split('\n')
     question_lines = []
     options = []
     
-    # Regex for options A. or A)
-    option_pattern = re.compile(r'^\s*[A-D][\.\)]\s+')
+    # Regex for options A., A), a., or a)
+    option_pattern = re.compile(r'^\s*([a-dA-D][\.\)])\s*')
     
+    # Counter for uppercase options
+    option_counter = 0
+    option_labels = ['A.', 'B.', 'C.', 'D.'] 
+
     for line in lines:
-        if option_pattern.match(line):
-            options.append(line.strip())
-        elif options: 
-            # If we already found options, append to last option (multiline option)
+        match = option_pattern.match(line)
+        if match:
+            # Found an option line. Format it using the desired label.
+            if option_counter < 4:
+                # Extract text after the original option marker
+                option_text = option_pattern.sub('', line).strip()
+                # Use the desired new format: A. B. C. D.
+                options.append(f"{option_labels[option_counter]} {option_text}")
+                option_counter += 1
+            else:
+                 # If more than 4 options, append as a normal line to question text, or ignore
+                 question_lines.append(line)
+        elif options and option_counter > 0: 
+            # If we already found options, append subsequent lines to the last option (multiline option)
             options[-1] += " " + line.strip()
         else:
+            # Before options start, these are question lines
             question_lines.append(line)
             
     question_text = "\n".join(question_lines).strip()
@@ -479,14 +492,13 @@ def parse_question_content(raw_text):
     if len(options) >= 2:
         return question_text, options
     else:
-        # Fallback if AI didn't format as MC properly
+        # If no options found, assume it's a long-form text answer question
         return raw_text, None
 
 def evaluate_interview(provider, api_key, cv_text, q_a_history, position, company_name):
     """
     Uses LLM to grade the entire interview based on correct answer percentages.
     Converts counts to Vietnam 10-point scale.
-    Updated for improved accuracy and justification.
     """
     prompt = f"""
     You are a strict and fair technical interviewer evaluating a candidate for the position of {position} at {company_name}.
@@ -533,12 +545,9 @@ def evaluate_interview(provider, api_key, cv_text, q_a_history, position, compan
     Make the Feedback and Suggestions sections long, comprehensive, and actionable.
     """
     
-    # Use a stable, high-quality model signal for rigorous evaluation
     response = call_llm(provider, "gemini-1.5-pro", api_key, prompt)
     
-    # JSON Parsing Fallback
     try:
-        # Attempt to find JSON block in case of conversational wrapper
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
         if json_match:
             data = json.loads(json_match.group(0))
@@ -547,23 +556,18 @@ def evaluate_interview(provider, api_key, cv_text, q_a_history, position, compan
             
         # --- Python-side Calculation for Vietnam Grading Scale (0-10) ---
         
-        # Specialized
         total_spec = len(q_a_history.get('specialized', []))
         spec_score = (data.get('specialized_correct_count', 0) / total_spec * 10) if total_spec > 0 else 0
         
-        # Attitude
         total_att = len(q_a_history.get('attitude', []))
         att_score = (data.get('attitude_accepted_count', 0) / total_att * 10) if total_att > 0 else 0
         
-        # Coding (Thinking)
         total_code = len(q_a_history.get('coding', []))
         think_score = (data.get('coding_accepted_count', 0) / total_code * 10) if total_code > 0 else 0
         
-        # CV Score comes directly from AI (subjective quality)
         cv_score = data.get('cv_score', 0)
         
-        # Determine Status (Weighted Average >= 7.0 is HIRED)
-        # CV and Specialized are usually the most critical components.
+        # Weighted Average Calculation
         weights = {'cv': 2, 'specialized': 3, 'attitude': 1, 'thinking': 4}
         weighted_sum = (cv_score * weights['cv'] + 
                         spec_score * weights['specialized'] + 
@@ -625,6 +629,28 @@ def timer_component(minutes, key_suffix):
     """
     st.components.v1.html(timer_html, height=0)
 
+# --- Score Bar Component (for UI Improvement) ---
+def score_bar_component(label, score):
+    """Displays a custom progress bar for a score out of 10."""
+    percent = int(score * 10)
+    if score >= 7.0:
+        bar_class = "bar-good"
+    elif score >= 5.0:
+        bar_class = "bar-ok"
+    else:
+        bar_class = "bar-bad"
+        
+    st.markdown(f"""
+    <div class="score-container">
+        <div class="score-label">{label}</div>
+        <div class="score-bar-bg">
+            <div class="score-bar {bar_class}" style="width: {percent}%;"></div>
+        </div>
+        <div class="score-text">{score:.1f}/10</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 # --- Session State Initialization ---
 if 'step' not in st.session_state: st.session_state.step = 'setup'
 if 'scores' not in st.session_state: st.session_state.scores = {'cv': 0, 'specialized': 0, 'attitude': 0, 'thinking': 0}
@@ -675,13 +701,14 @@ with st.sidebar:
         
         position = st.selectbox("Job Position", job_list, index=None, placeholder="Select a position...")
         
+        # New: Company Dropdown
+        company_list = sorted(["META", "Intel", "AMD", "NVIDIA", "IBM", "Microsoft", "VinAI Research", "xAI"])
+        company = st.selectbox("Company", company_list, index=None, placeholder="Select a company...")
+
         # Only show details if position is selected
-        if position:
+        if position and company:
             st.session_state.position = position # Store position in state
-            
-            # Persistent Company Assignment
-            if 'target_company' not in st.session_state:
-                st.session_state.target_company = random.choice(["NVIDIA", "Intel", "IBM", "AMD", "Meta"]) # Updated Facebook to Meta
+            st.session_state.target_company = company # Store selected company in state
             
             # 4. Experience
             experience = st.selectbox("Experience", [
@@ -689,16 +716,16 @@ with st.sidebar:
             ])
             st.session_state.experience = experience # Store experience in state
             
-            # 5. Job Description
-            st.markdown("### Job Description")
-            st.write(f"**Applying to:** {st.session_state.target_company}")
-            jd_text = get_job_description(position, st.session_state.target_company)
-            st.info(jd_text)
+            # 5. Job Description REMOVED AFTER SELECTION, as requested.
+            # st.markdown("### Job Description")
+            # st.write(f"**Applying to:** {st.session_state.target_company}")
+            # jd_text = get_job_description(position, st.session_state.target_company)
+            # st.info(jd_text)
             
             # 6. Buttons
             st.markdown("---")
 
-            # Reset Button - Only appears after submission/setup is complete
+            # Reset Button - Only appears after submission/setup is complete and is centered
             if st.session_state.step != 'setup':
                 col_reset1, col_reset2, col_reset3 = st.columns([1, 2, 1])
                 with col_reset2: # Center the button
@@ -716,23 +743,22 @@ with st.sidebar:
 # Handle Reset
 if 'reset_btn' in locals() and reset_btn:
     # Clear session state keys but NOT the API keys if they exist in environment
-    for key in list(st.session_state.keys()): # Iterate over a copy of keys
-        if key not in ['target_company']: # Keep the company assigned until the start flow
+    for key in list(st.session_state.keys()): 
+        if key not in ['target_company', 'provider', 'user_api_key']: # Preserve provider/key
             del st.session_state[key]
     st.rerun()
 
 # Handle Submit Application button in the sidebar (when in 'setup' step)
 if st.session_state.step == 'setup' and 'submit_btn' in locals() and submit_btn:
+    # Check for inputs again, even if the button only appears when position is selected
     if not uploaded_file:
         st.error("⚠️ Please upload a CV first.")
-    elif not position:
-        st.error("⚠️ Please select a Job Position.")
+    elif not position or not company:
+        st.error("⚠️ Please select both a Job Position and a Company.")
     else:
-        # Use stored provider/key
         current_provider = st.session_state.get('provider')
         current_key = st.session_state.get('user_api_key')
         
-        # Unified Processing for PDF, DOCX and Images
         text_result = process_uploaded_file(uploaded_file, current_provider, current_key)
         
         if not text_result or text_result.startswith("Error"):
@@ -747,11 +773,11 @@ if st.session_state.step == 'setup' and 'submit_btn' in locals() and submit_btn:
 if st.session_state.step == 'setup':
     st.title("Welcome to the AI Recruitment Portal")
     st.markdown("""
-    Please upload your CV in the sidebar and select a job position to submit your application.
+    Please upload your CV in the sidebar and select a job position and company to submit your application.
     
     **Instructions:**
-    1.  **Application:** Upload your CV (PDF, DOCX or Image) and select a role/experience.
-    2.  **Submit:** Press 'Submit Application' below (in the sidebar) to start the CV Review process.
+    1.  **Application:** Upload your CV (PDF, DOCX or Image) and select a role/experience/company.
+    2.  **Submit:** Press 'Submit Application' (in the sidebar) to start the CV Review process.
     3.  **Interview Flow:**
         * **CV Review:** We will analyze your document.
         * **Specialized Questions**
@@ -762,15 +788,12 @@ if st.session_state.step == 'setup':
 
 # --- STEP 1: CV REVIEW (Wait Screen) ---
 elif st.session_state.step == 'cv_review':
-    # Calculate Wait Time
-    # Standard: 3 mins. Demo Mode: 30 seconds (0.5 mins)
     cv_wait_time = 0.5 if st.session_state.get('demo_mode', True) else 3
     
     placeholder = st.empty()
     start_time = time.time()
     total_seconds = cv_wait_time * 60
     
-    # Real-time countdown loop
     while True:
         elapsed = time.time() - start_time
         if elapsed >= total_seconds:
@@ -780,7 +803,6 @@ elif st.session_state.step == 'cv_review':
         mins, secs = divmod(remaining, 60)
         time_str = f"{mins:02d}:{secs:02d}"
         
-        # Calculate progress percentage (0 to 100)
         progress_pct = min((elapsed / total_seconds) * 100, 100)
         
         placeholder.markdown(f"""
@@ -810,13 +832,11 @@ elif st.session_state.step == 'cv_review':
             
         st.markdown("**Score: 0/10**")
         if st.button("Try Again"):
-            # Clear all state, including uploaded file state, to force re-upload
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
         st.stop()
     else:
-        # Proceed
         if st.session_state.get('demo_mode', True) and missing_elements:
             st.warning("⚠️ Demo Mode Active: CV Criteria Checks are Bypassed.")
             time.sleep(1.5)
@@ -830,19 +850,14 @@ elif st.session_state.step == 'cv_review':
 # --- STEP 2: SPECIALIZED INTRO (NEW INTRODUCTION SCREEN) ---
 elif st.session_state.step == 'specialized_intro':
     company = st.session_state.target_company
-    # Fetching required information from state
     position = st.session_state.get('position', 'Unknown Position')
     experience = st.session_state.get('experience', 'Fresher')
     
     st.title(f"Welcome to the Interview for {company}")
     st.subheader(f"Role: {position} ({experience})")
     
-    # 3. Company Image (Placeholder - Using a more thematic placeholder image)
-    st.markdown(f"""
-    <div style="width: 100%; max-width: 800px; height: 350px; margin: 0 auto; overflow: hidden; border-radius: 15px; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.5);">
-        <img src="https://placehold.co/800x400/475569/f8fafc?text={company}+Tech+Career" style="width: 100%; height: 100%; object-fit: cover;" alt="{company} Office">
-    </div>
-    """, unsafe_allow_html=True)
+    # 3. Company Image (Uses specific image based on selection)
+    st.markdown(get_company_image_html(company), unsafe_allow_html=True)
     
     col1, col2 = st.columns([2, 1])
     
@@ -864,7 +879,6 @@ elif st.session_state.step == 'specialized_intro':
         start_interview = st.button("🚀 Start Interview", type="primary", use_container_width=True)
 
         if start_interview:
-            # Set question count based on Demo Mode
             st.session_state.q_count = 3 if st.session_state.get('demo_mode', True) else 60
             st.session_state.current_q_idx = 0
             st.session_state.step = 'specialized_questions'
@@ -874,11 +888,9 @@ elif st.session_state.step == 'specialized_questions':
     if st.session_state.current_q_idx < st.session_state.q_count:
         q_num = st.session_state.current_q_idx + 1
         
-        # Calculate Timer: Standard 2 mins. Demo (Reduce by 2/3) -> 0.66 mins (~40s)
         spec_time = (2/3) if st.session_state.get('demo_mode', True) else 2
         spec_time_str = "40s" if st.session_state.get('demo_mode', True) else "2:00"
         
-        # Ensure position and experience are available in state
         position = st.session_state.get('position', 'Software Developer')
         experience = st.session_state.get('experience', 'Fresher')
         current_provider = st.session_state.get('provider')
@@ -887,7 +899,6 @@ elif st.session_state.step == 'specialized_questions':
         # Generate Question
         if f"q_spec_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Technical Question {q_num}..."):
-                # Prepare a context of previous questions to ensure uniqueness
                 prev_questions = [item['question'] for item in st.session_state.history.get('specialized', [])]
                 prev_q_text = " ".join(prev_questions)
                 
@@ -902,11 +913,9 @@ elif st.session_state.step == 'specialized_questions':
                     Ensure this question is DIFFERENT from these previous ones: {prev_q_text}
                     Format: Question text followed by A) Option B) Option... Source: Cracking the Coding Interview."""
                 
-                # Use a high-quality model signal for better question generation
                 q_text = call_llm(current_provider, "gemini-1.5-pro", current_key, prompt)
                 st.session_state[f"q_spec_{q_num}"] = q_text
         
-        # Show Timer AFTER content is loaded
         st.markdown(f'<div id="custom_timer_div" class="timer-display">⏱️ Time Left: {spec_time_str}</div>', unsafe_allow_html=True)
         timer_component(spec_time, f"spec_{q_num}")
         
@@ -917,15 +926,16 @@ elif st.session_state.step == 'specialized_questions':
         st.write(q_content)
         
         if options:
+            # Display as radio buttons with A. B. C. D. format
             answer = st.radio("Select an Answer:", options, key=f"ans_spec_{q_num}", index=None)
         else:
+            # If no options, it must be a text-based question
             answer = st.text_area("Your Answer:", key=f"ans_spec_{q_num}")
         
         if st.button("Next Question"):
             if not answer:
                 st.warning("Please provide an answer.")
             else:
-                # Save answer for grading
                 st.session_state.history['specialized'].append({"question": q_content, "answer": answer})
                 st.session_state.current_q_idx += 1
                 st.rerun()
@@ -939,7 +949,6 @@ elif st.session_state.step == 'attitude_intro':
     st.markdown("**Goal:** Assess work ethics and personality.")
     
     if st.button("Start Attitude Test"):
-        # Reduced to 10 for Demo Mode (1/3 of 30)
         st.session_state.q_count_att = 10 if st.session_state.get('demo_mode', True) else 30 
         st.session_state.current_q_att_idx = 0
         st.session_state.step = 'attitude_questions'
@@ -949,11 +958,9 @@ elif st.session_state.step == 'attitude_questions':
     if st.session_state.current_q_att_idx < st.session_state.q_count_att:
         q_num = st.session_state.current_q_att_idx + 1
         
-        # Calculate Timer: Standard 10 mins. Demo (Reduce by 2/3) -> 3.33 mins
         att_time = (10/3) if st.session_state.get('demo_mode', True) else 10
         att_time_str = "3:20" if st.session_state.get('demo_mode', True) else "10:00"
         
-        # Ensure position and experience are available in state
         position = st.session_state.get('position', 'Software Developer')
         experience = st.session_state.get('experience', 'Fresher')
         current_provider = st.session_state.get('provider')
@@ -961,7 +968,6 @@ elif st.session_state.step == 'attitude_questions':
 
         if f"q_att_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Behavioral Question {q_num}..."):
-                # Prepare context of previous questions
                 prev_questions = [item['question'] for item in st.session_state.history.get('attitude', [])]
                 prev_q_text = " ".join(prev_questions)
                 
@@ -974,11 +980,9 @@ elif st.session_state.step == 'attitude_questions':
                     Ensure it is DIFFERENT from: {prev_q_text}.
                     Multiple Choice format."""
                     
-                # Use a high-quality model signal for better question generation
                 q_text = call_llm(current_provider, "gemini-1.5-pro", current_key, prompt)
                 st.session_state[f"q_att_{q_num}"] = q_text
             
-        # Show Timer AFTER content is loaded
         st.markdown(f'<div id="custom_timer_div" class="timer-display">⏱️ Time Left: {att_time_str}</div>', unsafe_allow_html=True)
         timer_component(att_time, f"att_{q_num}")
         
@@ -989,15 +993,16 @@ elif st.session_state.step == 'attitude_questions':
         st.write(q_content)
         
         if options:
+            # Display as radio buttons with A. B. C. D. format
             answer = st.radio("Select an Answer:", options, key=f"ans_att_{q_num}", index=None)
         else:
+             # If no options, it must be a text-based question
             answer = st.text_area("Your Answer:", height=150, key=f"ans_att_{q_num}")
         
         if st.button("Next"):
             if not answer:
                 st.warning("Please provide an answer.")
             else:
-                # Save answer for grading
                 st.session_state.history['attitude'].append({"question": q_content, "answer": answer})
                 st.session_state.current_q_att_idx += 1
                 st.rerun()
@@ -1021,11 +1026,9 @@ elif st.session_state.step == 'coding_questions':
     if st.session_state.current_q_code_idx < st.session_state.q_count_code:
         q_num = st.session_state.current_q_code_idx + 1
         
-        # Calculate Timer: Standard 10 mins. Demo (Reduce by 2/3) -> 3.33 mins
         code_time = (10/3) if st.session_state.get('demo_mode', True) else 10
         code_time_str = "3:20" if st.session_state.get('demo_mode', True) else "10:00"
         
-        # Ensure position and experience are available in state
         position = st.session_state.get('position', 'Software Developer')
         experience = st.session_state.get('experience', 'Fresher')
         current_provider = st.session_state.get('provider')
@@ -1033,7 +1036,6 @@ elif st.session_state.step == 'coding_questions':
 
         if f"q_code_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Coding Problem {q_num}..."):
-                # Prepare context of previous questions
                 prev_questions = [item['question'] for item in st.session_state.history.get('coding', [])]
                 prev_q_text = " ".join(prev_questions)
                 
@@ -1046,11 +1048,9 @@ elif st.session_state.step == 'coding_questions':
                     Ensure it is DIFFERENT from: {prev_q_text}.
                     Detailed problem statement."""
                     
-                # Use a high-quality model signal for coding problems
                 q_text = call_llm(current_provider, "gemini-1.5-pro", current_key, prompt)
                 st.session_state[f"q_code_{q_num}"] = q_text
             
-        # Show Timer AFTER content is loaded
         st.markdown(f'<div id="custom_timer_div" class="timer-display">⏱️ Time Left: {code_time_str}</div>', unsafe_allow_html=True)
         timer_component(code_time, f"code_{q_num}")
         
@@ -1071,7 +1071,6 @@ elif st.session_state.step == 'coding_questions':
             if not code_file and not code_text_input:
                 st.warning("Please provide an answer.")
             else:
-                # Save answer
                 ans_content = code_text_input if code_text_input else f"File uploaded: {code_file.name}"
                 st.session_state.history['coding'].append({"question": st.session_state[f"q_code_{q_num}"], "answer": ans_content, "language": language})
                 
@@ -1082,12 +1081,10 @@ elif st.session_state.step == 'coding_questions':
         st.session_state.step = 'evaluation'
         st.rerun()
 
-# --- STEP 5: FINAL EVALUATION (UPDATED WITH REAL SCORING & TIMER) ---
+# --- STEP 5: FINAL EVALUATION (UPDATED WITH REAL SCORING & UI IMPROVEMENTS) ---
 elif st.session_state.step == 'evaluation':
     st.title("📊 Final Evaluation")
     
-    # Calculate Evaluation Wait Time 
-    # Standard: 3 mins. Demo: 1 min.
     eval_wait_time = 1 if st.session_state.get('demo_mode', True) else 3
     
     # --- Real-Time Analysis Animation ---
@@ -1105,7 +1102,6 @@ elif st.session_state.step == 'evaluation':
             mins, secs = divmod(remaining, 60)
             time_str = f"{mins:02d}:{secs:02d}"
             
-            # Calculate progress percentage (0 to 100)
             progress_pct = min((elapsed / total_seconds) * 100, 100)
             
             placeholder.markdown(f"""
@@ -1124,7 +1120,6 @@ elif st.session_state.step == 'evaluation':
         placeholder.empty()
         
         # --- Perform Real AI Scoring ---
-        # Ensure provider and key are available in scope
         provider_name = st.session_state.get('provider', 'Google Gemini')
         user_key = st.session_state.get('user_api_key', get_key("GEMINI_API_KEY") or get_key("GROQ_API_KEY"))
 
@@ -1138,7 +1133,6 @@ elif st.session_state.step == 'evaluation':
                 st.session_state.get('target_company', 'NVIDIA')
             )
             
-            # Update Session State with Real Scores
             st.session_state.scores['cv'] = evaluation_result.get('cv_score', 0)
             st.session_state.scores['specialized'] = evaluation_result.get('specialized_score', 0)
             st.session_state.scores['attitude'] = evaluation_result.get('attitude_score', 0)
@@ -1163,11 +1157,13 @@ elif st.session_state.step == 'evaluation':
         """, unsafe_allow_html=True)
         
         st.markdown("### 📈 Score Breakdown")
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("CV/Resume", f"{st.session_state.scores['cv']}/10")
-        col2.metric("Specialized", f"{st.session_state.scores['specialized']}/10")
-        col3.metric("Attitude", f"{st.session_state.scores['attitude']}/10")
-        col4.metric("Thinking", f"{st.session_state.scores['thinking']}/10")
         
+        # Use the custom score bar component
+        score_bar_component("CV/Resume", st.session_state.scores['cv'])
+        score_bar_component("Specialized", st.session_state.scores['specialized'])
+        score_bar_component("Attitude", st.session_state.scores['attitude'])
+        score_bar_component("Thinking", st.session_state.scores['thinking'])
+        
+        st.markdown("---")
         st.markdown("### 📝 AI Feedback & Suggestions")
         st.markdown(st.session_state.final_feedback)
