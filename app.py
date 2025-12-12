@@ -145,27 +145,24 @@ def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
     # Define fallback priority (check if keys exist)
     fallbacks = []
     
-    # Add Gemini as fallback (Use stable model)
+    # Define capable models for fallbacks
+    # Failsafe 1: Gemini (Stable/Capable)
     gemini_key = get_key("GEMINI_API_KEY")
-    # Always ensure we try Gemini if it wasn't the primary or if the primary failed
-    if gemini_key:
-        # Use stable/capable model for fallback
+    if gemini_key and provider != "Google Gemini":
         fallbacks.append(("Google Gemini", "gemini-1.5-pro", gemini_key)) 
         
-    # Add OpenAI as fallback (High-quality alternative)
+    # Failsafe 2: OpenAI (High-quality alternative)
     openai_key = get_key("OPENAI_API_KEY")
     if openai_key and provider != "OpenAI":
         fallbacks.append(("OpenAI", "gpt-4o", openai_key))
 
-    # Add Groq as fallback (Fast alternative)
+    # Failsafe 3: Groq (Fast alternative)
     groq_key = get_key("GROQ_API_KEY")
     if groq_key and provider != "Groq":
         # Check if we need image support
         if image_data:
-             # Groq has a specific vision model we can try
              fallbacks.append(("Groq", "llama-3.2-11b-vision-preview", groq_key))
         else:
-             # Use stable, high-quality Llama 3.1 variant for text fallback
              fallbacks.append(("Groq", "llama-3.1-70b-versatile", groq_key))
         
     # Attempt fallbacks
@@ -189,10 +186,9 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
     if provider == "Google Gemini":
         try:
             genai.configure(api_key=api_key)
-            # Prioritize models based on the request (e.g., if model_name in call_llm was 'gpt-4o' or 'gemini-1.5-pro')
+            # Prioritize models based on the request 
             candidates = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.0-pro']
             
-            # If the user requested a specific model that isn't in our candidates, try it first
             if model_name not in candidates:
                 candidates.insert(0, model_name)
             
@@ -205,7 +201,6 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
                         response = model.generate_content(prompt)
                     return response.text
                 except Exception as e:
-                    # Log internal model failure and try next candidate
                     continue
             return "Error: All specified Gemini models busy/not found."
         except Exception as e:
@@ -223,7 +218,6 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
 
             messages = []
             
-            # If image_data is present, we MUST use a vision model
             if image_data:
                 # Convert PIL Image to Base64
                 buffered = io.BytesIO()
@@ -253,7 +247,6 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
                 )
                 return chat.choices[0].message.content
             except Exception:
-                # If the primary stable model failed, try other stable Groq models
                 if not image_data:
                     # Added more fallback models for robustness (using Llama 3.1 for stability)
                     fallback_models = [
@@ -670,15 +663,26 @@ with st.sidebar:
         
         st.header("Job Information")
         
-        # Auto-API Logic (Hidden)
-        provider = "Groq" # Default free
-        user_api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+        # --- FIX: Change Default Provider Priority for Stability ---
+        provider = "Google Gemini"
+        user_api_key = get_key("GEMINI_API_KEY")
+
         if not user_api_key:
-            provider = "Google Gemini"
-            user_api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
+            provider = "OpenAI"
+            user_api_key = get_key("OPENAI_API_KEY")
+            
+        if not user_api_key:
+            provider = "Groq"
+            user_api_key = get_key("GROQ_API_KEY")
+            
+        # Store the determined provider and key in session state
+        st.session_state.provider = provider
+        st.session_state.user_api_key = user_api_key
+        # --- END FIX ---
         
         # 2. Toggle Switch for Demo Mode
         demo_mode = st.toggle("⚡ Demo mode (3 questions)", value=True)
+        st.session_state.demo_mode = demo_mode # Store demo mode status in state
         
         # 3. Job Position (Alphabetical)
         job_list = sorted([
@@ -698,6 +702,8 @@ with st.sidebar:
         
         # Only show details if position is selected
         if position:
+            st.session_state.position = position # Store position in state
+            
             # Persistent Company Assignment
             if 'target_company' not in st.session_state:
                 st.session_state.target_company = random.choice(["NVIDIA", "Intel", "IBM", "AMD", "Meta"]) # Updated Facebook to Meta
@@ -706,6 +712,7 @@ with st.sidebar:
             experience = st.selectbox("Experience", [
                 "Fresher", "Intern", "Junior", "Mid-Level", "Senior", "Lead/Manager"
             ])
+            st.session_state.experience = experience # Store experience in state
             
             # 5. Job Description
             st.markdown("### Job Description")
@@ -718,8 +725,8 @@ with st.sidebar:
             with col1:
                 # START button removed as requested. Interview now starts via the introduction page.
                 pass 
+            # RESET button aligned to the left using the column structure
             with col2:
-                # Align the RESET button to the left by putting it in the first column of the three
                 reset_btn = st.button("RESET", disabled=(st.session_state.step == 'setup'))
 
 # --- MAIN LOGIC FLOW ---
@@ -737,8 +744,12 @@ if 'uploaded_file' in locals() and uploaded_file and 'position' in locals() and 
     
     # We use a non-interactive button in the main area to submit the application
     if st.button("Submit Application", type="primary"):
+        # Use stored provider/key
+        current_provider = st.session_state.get('provider')
+        current_key = st.session_state.get('user_api_key')
+        
         # Unified Processing for PDF, DOCX and Images
-        text_result = process_uploaded_file(uploaded_file, provider, user_api_key)
+        text_result = process_uploaded_file(uploaded_file, current_provider, current_key)
         
         if not text_result or text_result.startswith("Error"):
             st.error(f"Failed to read file: {text_result}")
@@ -769,7 +780,7 @@ if st.session_state.step == 'setup':
 elif st.session_state.step == 'cv_review':
     # Calculate Wait Time
     # Standard: 3 mins. Demo Mode: 30 seconds (0.5 mins)
-    cv_wait_time = 0.5 if demo_mode else 3
+    cv_wait_time = 0.5 if st.session_state.get('demo_mode', True) else 3
     
     placeholder = st.empty()
     start_time = time.time()
@@ -806,7 +817,7 @@ elif st.session_state.step == 'cv_review':
     # Criteria Check
     missing_elements, detected_lang = check_cv_elements(st.session_state.resume_text)
     
-    if missing_elements and not demo_mode:
+    if missing_elements and not st.session_state.get('demo_mode', True):
         st.error(f"❌ Application Rejected. Missing required elements: {', '.join(missing_elements)}")
         st.caption(f"Detected Language: {detected_lang}")
         
@@ -822,7 +833,7 @@ elif st.session_state.step == 'cv_review':
         st.stop()
     else:
         # Proceed
-        if demo_mode and missing_elements:
+        if st.session_state.get('demo_mode', True) and missing_elements:
             st.warning("⚠️ Demo Mode Active: CV Criteria Checks are Bypassed.")
             time.sleep(1.5)
             
@@ -835,11 +846,9 @@ elif st.session_state.step == 'cv_review':
 # --- STEP 2: SPECIALIZED INTRO (NEW INTRODUCTION SCREEN) ---
 elif st.session_state.step == 'specialized_intro':
     company = st.session_state.target_company
-    # We need to ensure position and experience are available in state for this screen to work correctly.
-    # In a real app, this data would be stored when the user selects them in the sidebar before calling the first rerun.
-    # For robustness, we check for them in the session state, assuming they were stored upon file upload/selection.
-    position = st.session_state.get('position', locals().get('position', 'Unknown Position'))
-    experience = st.session_state.get('experience', locals().get('experience', 'Fresher'))
+    # Fetching required information from state
+    position = st.session_state.get('position', 'Unknown Position')
+    experience = st.session_state.get('experience', 'Fresher')
     
     st.title(f"Welcome to the Interview for {company}")
     st.subheader(f"Role: {position} ({experience})")
@@ -869,9 +878,6 @@ elif st.session_state.step == 'specialized_intro':
         
         # Start button is the only action button here
         start_interview = st.button("🚀 Start Interview", type="primary", use_container_width=True)
-        
-        # Reset Interview button removed as requested
-        # reset_interview = st.button("🔄 Reset Interview", type="secondary", use_container_width=True)
 
         if start_interview:
             # Set question count based on Demo Mode
@@ -891,6 +897,8 @@ elif st.session_state.step == 'specialized_questions':
         # Ensure position and experience are available in state
         position = st.session_state.get('position', 'Software Developer')
         experience = st.session_state.get('experience', 'Fresher')
+        current_provider = st.session_state.get('provider')
+        current_key = st.session_state.get('user_api_key')
         
         # Generate Question
         if f"q_spec_{q_num}" not in st.session_state:
@@ -911,7 +919,7 @@ elif st.session_state.step == 'specialized_questions':
                     Format: Question text followed by A) Option B) Option... Source: Cracking the Coding Interview."""
                 
                 # Use a high-quality model signal for better question generation
-                q_text = call_llm(provider, "gemini-1.5-pro", user_api_key, prompt)
+                q_text = call_llm(current_provider, "gemini-1.5-pro", current_key, prompt)
                 st.session_state[f"q_spec_{q_num}"] = q_text
         
         # Show Timer AFTER content is loaded
@@ -964,6 +972,8 @@ elif st.session_state.step == 'attitude_questions':
         # Ensure position and experience are available in state
         position = st.session_state.get('position', 'Software Developer')
         experience = st.session_state.get('experience', 'Fresher')
+        current_provider = st.session_state.get('provider')
+        current_key = st.session_state.get('user_api_key')
 
         if f"q_att_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Behavioral Question {q_num}..."):
@@ -981,7 +991,7 @@ elif st.session_state.step == 'attitude_questions':
                     Multiple Choice format."""
                     
                 # Use a high-quality model signal for better question generation
-                q_text = call_llm(provider, "gemini-1.5-pro", user_api_key, prompt)
+                q_text = call_llm(current_provider, "gemini-1.5-pro", current_key, prompt)
                 st.session_state[f"q_att_{q_num}"] = q_text
             
         # Show Timer AFTER content is loaded
@@ -1034,6 +1044,8 @@ elif st.session_state.step == 'coding_questions':
         # Ensure position and experience are available in state
         position = st.session_state.get('position', 'Software Developer')
         experience = st.session_state.get('experience', 'Fresher')
+        current_provider = st.session_state.get('provider')
+        current_key = st.session_state.get('user_api_key')
 
         if f"q_code_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Coding Problem {q_num}..."):
@@ -1051,7 +1063,7 @@ elif st.session_state.step == 'coding_questions':
                     Detailed problem statement."""
                     
                 # Use a high-quality model signal for coding problems
-                q_text = call_llm(provider, "gemini-1.5-pro", user_api_key, prompt)
+                q_text = call_llm(current_provider, "gemini-1.5-pro", current_key, prompt)
                 st.session_state[f"q_code_{q_num}"] = q_text
             
         # Show Timer AFTER content is loaded
