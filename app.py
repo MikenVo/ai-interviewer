@@ -144,10 +144,10 @@ def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
     # Define fallback priority (check if keys exist)
     fallbacks = []
     
-    # Add Gemini as fallback
+    # Add Gemini as fallback (Use stable model)
     gemini_key = get_key("GEMINI_API_KEY")
     if gemini_key and provider != "Google Gemini":
-        fallbacks.append(("Google Gemini", "gemini-2.0-flash-exp", gemini_key))
+        fallbacks.append(("Google Gemini", "gemini-1.5-flash", gemini_key))
         
     # Add Groq as fallback
     groq_key = get_key("GROQ_API_KEY")
@@ -180,8 +180,12 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
     if provider == "Google Gemini":
         try:
             genai.configure(api_key=api_key)
-            # Updated Robust fallback list for Gemini
-            candidates = [model_name, 'gemini-2.0-flash-exp', 'gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro']
+            # Updated Robust fallback list for Gemini - Removed experimental/broken models
+            candidates = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro']
+            
+            # If the user requested a specific model that isn't in our candidates, try it first
+            if model_name not in candidates:
+                candidates.insert(0, model_name)
             
             for m in candidates:
                 try:
@@ -226,7 +230,6 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
             else:
                 # Text only
                 messages = [{"role": "user", "content": prompt}]
-                candidates = [model_name, "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
             
             # Try to make the call
             try:
@@ -361,7 +364,7 @@ def process_uploaded_file(uploaded_file, provider, user_api_key):
             # Smart OCR Provider Logic
             ocr_provider = provider
             ocr_key = user_api_key
-            ocr_model = "gemini-2.0-flash-exp" # Default efficient vision model
+            ocr_model = "gemini-1.5-flash" # Use stable model for OCR
             
             # If default provider is Groq, prefer using Groq's new vision model
             # But if that fails or key missing, fallback to Gemini
@@ -375,16 +378,16 @@ def process_uploaded_file(uploaded_file, provider, user_api_key):
                     pass 
                 
             elif provider == "Google Gemini":
-                ocr_model = "gemini-2.0-flash-exp"
+                ocr_model = "gemini-1.5-flash"
 
             with st.spinner(f"Reading image..."):
                 text = call_llm(ocr_provider, ocr_model, ocr_key, prompt, image_data=image)
                 
-                # If the result is an error message, try explicit fallback to Gemini 2.0
+                # If the result is an error message, try explicit fallback to Gemini 1.5
                 if text.startswith("Error"):
                      gemini_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
                      if gemini_key:
-                         text = call_llm("Google Gemini", "gemini-2.0-flash-exp", gemini_key, prompt, image_data=image)
+                         text = call_llm("Google Gemini", "gemini-1.5-flash", gemini_key, prompt, image_data=image)
             
             return text
 
@@ -532,10 +535,11 @@ def evaluate_interview(provider, api_key, cv_text, q_a_history, position, compan
     {json.dumps(q_a_history.get('coding', []), indent=2)}
     
     INSTRUCTIONS:
-    1. **Specialized Knowledge:** Count exactly how many answers are factually correct.
-    2. **Attitude:** Count exactly how many answers are professional and acceptable. Any answer that is nonsensical, gibberish, rude, or toxic must be REJECTED (not counted).
-    3. **Coding:** Count exactly how many solutions are logically correct and solve the problem.
-    4. **CV/Resume:** Rate the CV quality on a scale of 0 to 10 (Float).
+    1. **Specialized Knowledge:** Carefully analyze each question and answer. Determine if the answer is factually correct. Count the number of correct answers.
+    2. **Attitude:** Analyze if the answer is professional and demonstrates good work ethics. Count the number of acceptable answers. (Reject answers that are rude, toxic, or nonsensical).
+    3. **Coding:** Evaluate the logic. Count the number of solutions that are logically correct and solve the problem.
+    4. **CV/Resume:** Rate the CV quality on a scale of 0.0 to 10.0.
+    
     5. Return ONLY a JSON object with this EXACT structure (no markdown formatting around it):
     {{
         "specialized_correct_count": <int>,
@@ -549,7 +553,7 @@ def evaluate_interview(provider, api_key, cv_text, q_a_history, position, compan
     - **Company Name:** {company_name}
     - **Feedback:**
         * **CV:** [Detailed analysis of CV strengths/weaknesses]
-        * **Specialized:** [Analysis of technical answers]
+        * **Specialized:** [Analysis of technical answers, noting which were right/wrong]
         * **Attitude:** [Analysis of behavioral answers]
         * **Coding:** [Analysis of code quality/logic]
     - **Suggestions:** [Comprehensive strategies to improve based on all the above]
@@ -557,6 +561,7 @@ def evaluate_interview(provider, api_key, cv_text, q_a_history, position, compan
     Make the Suggestions section long, comprehensive, and actionable.
     """
     
+    # Use a stable model for evaluation
     response = call_llm(provider, "llama-3.3-70b-versatile", api_key, prompt)
     
     # JSON Parsing Fallback
@@ -604,7 +609,7 @@ def evaluate_interview(provider, api_key, cv_text, q_a_history, position, compan
         return {
             "cv_score": 0, "specialized_score": 0, "attitude_score": 0, "thinking_score": 0,
             "status": "NOT HIRED", 
-            "feedback_markdown": f"Error parsing AI evaluation: {e}"
+            "feedback_markdown": f"Error parsing AI evaluation: {e}. Raw response: {response[:100]}"
         }
 
 # --- Javascript Timer Component ---
@@ -749,8 +754,8 @@ if st.session_state.step == 'setup':
 # --- STEP 1: CV REVIEW (Wait Screen) ---
 elif st.session_state.step == 'cv_review':
     # Calculate Wait Time
-    # Standard: 3 mins. Demo Mode (Reduce by 2/3): 1 min.
-    cv_wait_time = 1 if demo_mode else 3
+    # Standard: 3 mins. Demo Mode: 30 seconds (0.5 mins)
+    cv_wait_time = 0.5 if demo_mode else 3
     
     placeholder = st.empty()
     start_time = time.time()
@@ -1017,8 +1022,9 @@ elif st.session_state.step == 'coding_questions':
 elif st.session_state.step == 'evaluation':
     st.title("📊 Final Evaluation")
     
-    # Calculate Evaluation Wait Time (10 mins in Full Mode, 3.33 mins in Demo)
-    eval_wait_time = 3 # Fixed 3 minutes as requested
+    # Calculate Evaluation Wait Time 
+    # Standard: 3 mins. Demo: 1 min.
+    eval_wait_time = 1 if demo_mode else 3
     
     # --- Real-Time Analysis Animation ---
     if 'eval_complete' not in st.session_state:
