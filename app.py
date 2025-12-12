@@ -241,7 +241,14 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
             except Exception:
                 # If specific model failed and it's text-only, try others
                 if not image_data:
-                    for m in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+                    # Added more fallback models for robustness
+                    fallback_models = [
+                        "llama-3.1-70b-versatile",
+                        "llama-3.1-8b-instant",
+                        "llama3-70b-8192", 
+                        "mixtral-8x7b-32768"
+                    ]
+                    for m in fallback_models:
                         try:
                             chat = client.chat.completions.create(messages=messages, model=m)
                             return chat.choices[0].message.content
@@ -411,26 +418,6 @@ def get_future_date():
     days_ahead = random.randint(7, 30)
     future_date = datetime.now() + timedelta(days=days_ahead)
     return future_date.strftime("%B %d, %Y")
-
-@st.dialog("Explore Opportunities")
-def show_opportunities_popup():
-    st.markdown("### Choose your next interview:")
-    
-    # Generate 3 random companies distinct from current if possible
-    all_companies = ["Google", "Amazon", "Microsoft", "Netflix", "Tesla", "SpaceX", "Adobe", "Apple", "Meta"]
-    current = st.session_state.get('target_company', '')
-    candidates = [c for c in all_companies if c != current]
-    options = random.sample(candidates, 3)
-    
-    selected_company = st.radio("Select a company:", options)
-    
-    if st.button("Confirm Selection"):
-        st.session_state.target_company = selected_company
-        # Reset Logic
-        for key in st.session_state.keys():
-            if key != 'target_company': # Keep the new company selection
-                del st.session_state[key]
-        st.rerun()
 
 def check_cv_elements(text):
     # Determine Language first, then check criteria
@@ -706,9 +693,11 @@ with st.sidebar:
             st.info(jd_text)
             
             # 6. Buttons
-            col1, col2 = st.columns(2)
-            start_btn = col1.button("START", type="primary")
-            reset_btn = col2.button("RESET", disabled=(st.session_state.step == 'setup'))
+            col1, col2, col3 = st.columns([1, 1, 2])
+            with col1:
+                start_btn = st.button("START", type="primary")
+            with col2:
+                reset_btn = st.button("RESET", disabled=(st.session_state.step == 'setup'))
 
 # --- MAIN LOGIC FLOW ---
 
@@ -1103,6 +1092,3 @@ elif st.session_state.step == 'evaluation':
         
         st.markdown("### 📝 AI Feedback & Suggestions")
         st.markdown(st.session_state.final_feedback)
-        
-        if st.button("Opportunities"):
-            show_opportunities_popup()
