@@ -139,14 +139,15 @@ def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
         return result
     
     # 2. Auto-Fallback Logic
-    print(f"Primary provider {provider} failed. Attempting fallbacks...")
+    # If the primary failed, we try others immediately without just printing.
     
     # Define fallback priority (check if keys exist)
     fallbacks = []
     
     # Add Gemini as fallback (Use stable model)
     gemini_key = get_key("GEMINI_API_KEY")
-    if gemini_key and provider != "Google Gemini":
+    # Always ensure we try Gemini if it wasn't the primary or if the primary failed
+    if gemini_key:
         fallbacks.append(("Google Gemini", "gemini-1.5-flash", gemini_key))
         
     # Add Groq as fallback
@@ -166,6 +167,10 @@ def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
 
     # Attempt fallbacks
     for fb_provider, fb_model, fb_key in fallbacks:
+        # Don't retry the same provider if it just failed
+        if fb_provider == provider: 
+            continue
+            
         res = _try_provider(fb_provider, fb_model, fb_key, prompt, image_data)
         if res and not res.startswith("Error"):
             return res
@@ -413,6 +418,19 @@ def get_job_description(position, company):
     * Strong problem-solving skills and teamwork.
     * Willingness to learn and adapt to new technologies.
     """
+
+def get_company_story(company):
+    """
+    Returns a brief, simulated story about the company.
+    """
+    stories = {
+        "NVIDIA": "NVIDIA pioneered accelerated computing to tackle challenges no one else can solve. Our work in AI and the metaverse is transforming the world's largest industries and profoundly impacting society.",
+        "Intel": "Intel is an industry leader, creating world-changing technology that enables global progress and enriches lives. We stand at the brink of a new era where everything is fueled by silicon.",
+        "IBM": "IBM integrates technology and expertise, providing infrastructure, software (including Red Hat) and consulting services for clients as they pursue the digital transformation of the world's mission-critical businesses.",
+        "AMD": "AMD drives innovation in high-performance computing, graphics and visualization technologies. Billions of people, leading Fortune 500 businesses and cutting-edge scientific research institutions around the world rely on AMD technology.",
+        "Facebook": "Meta builds technologies that help people connect, find communities, and grow businesses. When Facebook launched in 2004, it changed the way people connect. Apps like Messenger, Instagram and WhatsApp further empowered billions around the world."
+    }
+    return stories.get(company, f"{company} is a leading technology firm dedicated to innovation and excellence in the {position} field. We value creativity, integrity, and a passion for building the future.")
 
 def get_future_date():
     days_ahead = random.randint(7, 30)
@@ -805,20 +823,49 @@ elif st.session_state.step == 'cv_review':
         st.session_state.step = 'specialized_intro'
         st.rerun()
 
-# --- STEP 2: SPECIALIZED KNOWLEDGE ---
+# --- STEP 2: SPECIALIZED INTRO (UPDATED WITH COMPANY INFO) ---
 elif st.session_state.step == 'specialized_intro':
-    st.title("🧠 Phase 1: Specialized Knowledge")
-    st.markdown(f"**Role:** {position} | **Experience:** {experience}")
-    st.info("Purpose: Evaluate specialized knowledge for the selected job.")
+    # This is the new Introduction Screen feature
+    company = st.session_state.target_company
     
-    st.write("Sources: *Cracking the Coding Interview*, *Elements of Programming Interviews*")
+    st.title(f"Welcome to {company}")
     
-    if st.button("Start Specialized Questions"):
-        # Set question count based on Demo Mode
-        st.session_state.q_count = 3 if demo_mode else 60
-        st.session_state.current_q_idx = 0
-        st.session_state.step = 'specialized_questions'
-        st.rerun()
+    # Company Image (Using reliable placeholders or st.image)
+    # Using a professional placeholder service for reliability
+    st.markdown(f"""
+    <div style="width: 100%; height: 300px; overflow: hidden; border-radius: 15px; margin-bottom: 20px;">
+        <img src="https://loremflickr.com/800/400/office,building,tech" style="width: 100%; object-fit: cover;" alt="{company} Office">
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("### 📖 About Us")
+        st.write(get_company_story(company))
+        
+        st.markdown("### 📋 Job Description")
+        st.info(get_job_description(position, company))
+    
+    with col2:
+        st.markdown("### 🚦 Ready?")
+        st.warning('Press "Start" if you are ready for the interview, "Reset" if you want to restart the interview.')
+        
+        # Start and Reset Logic
+        start_interview = st.button("🚀 Start Interview", type="primary", use_container_width=True)
+        reset_interview = st.button("🔄 Reset Interview", type="secondary", use_container_width=True)
+
+        if start_interview:
+            # Set question count based on Demo Mode
+            st.session_state.q_count = 3 if demo_mode else 60
+            st.session_state.current_q_idx = 0
+            st.session_state.step = 'specialized_questions'
+            st.rerun()
+            
+        if reset_interview:
+            for key in st.session_state.keys():
+                del st.session_state[key]
+            st.rerun()
 
 elif st.session_state.step == 'specialized_questions':
     if st.session_state.current_q_idx < st.session_state.q_count:
