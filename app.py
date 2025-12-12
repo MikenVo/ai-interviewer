@@ -19,7 +19,8 @@ except ImportError:
     pass
 
 try:
-    from openai import OpenAI, OpenAIError
+    # from openai import OpenAI, OpenAIError # REMOVED: OpenAI is no longer used
+    pass
 except ImportError:
     pass
 
@@ -79,6 +80,17 @@ st.markdown("""
     }
     .stButton > button:hover {
         background-color: #2563eb;
+    }
+
+    /* Custom CSS to center buttons in sidebar columns */
+    .stButton {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+    }
+    /* Ensure the button element itself takes width if needed, though Streamlit usually handles this */
+    .stButton > button {
+        width: 80%; /* Adjusted width for centering effect */
     }
     
     /* Custom Timer Logic */
@@ -152,12 +164,7 @@ def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
     if gemini_key and provider != "Google Gemini":
         fallbacks.append(("Google Gemini", "gemini-1.5-pro", gemini_key)) 
         
-    # Failsafe 2: OpenAI (High-quality alternative)
-    openai_key = get_key("OPENAI_API_KEY")
-    if openai_key and provider != "OpenAI":
-        fallbacks.append(("OpenAI", "gpt-4o", openai_key))
-
-    # Failsafe 3: Groq (Fast alternative)
+    # Failsafe 2: Groq (Fast alternative) - OpenAI removed
     groq_key = get_key("GROQ_API_KEY")
     if groq_key and provider != "Groq":
         # Check if we need image support
@@ -165,6 +172,8 @@ def call_llm(provider, model_name, api_key, prompt, image_data=None, retries=2):
              fallbacks.append(("Groq", "llama-3.2-11b-vision-preview", groq_key))
         else:
              fallbacks.append(("Groq", "llama-3.1-70b-versatile", groq_key))
+             
+    # NOTE: OpenAI fallback removed as requested
         
     # Attempt fallbacks
     for fb_provider, fb_model, fb_key in fallbacks:
@@ -267,6 +276,8 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
 
     # --- OpenAI ---
     elif provider == "OpenAI":
+        # This section remains for consistency but is excluded from primary/fallback logic
+        # by removing the key check/assignment in the sidebar/call_llm.
         try:
             from openai import OpenAI
             client = OpenAI(api_key=api_key)
@@ -303,40 +314,6 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
 
     # --- Claude ---
     # REMOVED ANTHROPIC/CLAUDE LOGIC TO AVOID COSTS
-    # elif provider == "Anthropic (Claude)":
-    #     try:
-    #         import anthropic
-    #         client = anthropic.Anthropic(api_key=api_key)
-            
-    #         if image_data:
-    #             # Convert PIL Image to Base64
-    #             buffered = io.BytesIO()
-    #             image_data.save(buffered, format="JPEG")
-    #             img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                
-    #             messages = [
-    #                 {
-    #                     "role": "user",
-    #                     "content": [
-    #                         {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_str}},
-    #                         {"type": "text", "text": prompt}
-    #                     ]
-    #                 }
-    #             ]
-    #         else:
-    #             messages = [{"role": "user", "content": prompt}]
-
-    #         # Use Claude 3 Sonnet as a capable default for stability
-    #         model_to_use = "claude-3-sonnet-20240229"
-
-    #         message = client.messages.create(
-    #             model=model_to_use,
-    #             max_tokens=2048, # Increased token limit for safety
-    #             messages=messages
-    #         )
-    #         return message.content[0].text
-    #     except Exception as e:
-    #         return f"Claude Error: {str(e)}"
             
     return "Error: Unknown provider"
 
@@ -665,14 +642,10 @@ with st.sidebar:
         
         st.header("Job Information")
         
-        # --- FIX: Change Default Provider Priority for Stability ---
+        # --- Provider Priority (OpenAI Removed) ---
         provider = "Google Gemini"
         user_api_key = get_key("GEMINI_API_KEY")
 
-        if not user_api_key:
-            provider = "OpenAI"
-            user_api_key = get_key("OPENAI_API_KEY")
-            
         if not user_api_key:
             provider = "Groq"
             user_api_key = get_key("GROQ_API_KEY")
@@ -680,7 +653,7 @@ with st.sidebar:
         # Store the determined provider and key in session state
         st.session_state.provider = provider
         st.session_state.user_api_key = user_api_key
-        # --- END FIX ---
+        # --- END Provider Priority ---
         
         # 2. Toggle Switch for Demo Mode
         demo_mode = st.toggle("⚡ Demo mode (3 questions)", value=True)
@@ -723,13 +696,20 @@ with st.sidebar:
             st.info(jd_text)
             
             # 6. Buttons
-            col1, col2, col3 = st.columns([1, 1, 2])
-            with col1:
-                # START button removed as requested. Interview now starts via the introduction page.
-                pass 
-            # RESET button aligned to the left using the column structure
-            with col2:
-                reset_btn = st.button("RESET", disabled=(st.session_state.step == 'setup'))
+            st.markdown("---")
+
+            # Reset Button - Only appears after submission/setup is complete
+            if st.session_state.step != 'setup':
+                col_reset1, col_reset2, col_reset3 = st.columns([1, 2, 1])
+                with col_reset2: # Center the button
+                    reset_btn = st.button("RESET", type="secondary", use_container_width=True)
+            
+            # Submit Button - Moved to the end of the sidebar and centered
+            if st.session_state.step == 'setup':
+                col_submit1, col_submit2, col_submit3 = st.columns([1, 2, 1])
+                with col_submit2: # Center the button
+                    submit_btn = st.button("Submit Application", type="primary", use_container_width=True)
+
 
 # --- MAIN LOGIC FLOW ---
 
@@ -741,11 +721,13 @@ if 'reset_btn' in locals() and reset_btn:
             del st.session_state[key]
     st.rerun()
 
-# We check for mandatory fields before proceeding to CV Review (Application Submitted)
-if 'uploaded_file' in locals() and uploaded_file and 'position' in locals() and position and st.session_state.step == 'setup':
-    
-    # We use a non-interactive button in the main area to submit the application
-    if st.button("Submit Application", type="primary"):
+# Handle Submit Application button in the sidebar (when in 'setup' step)
+if st.session_state.step == 'setup' and 'submit_btn' in locals() and submit_btn:
+    if not uploaded_file:
+        st.error("⚠️ Please upload a CV first.")
+    elif not position:
+        st.error("⚠️ Please select a Job Position.")
+    else:
         # Use stored provider/key
         current_provider = st.session_state.get('provider')
         current_key = st.session_state.get('user_api_key')
@@ -769,7 +751,7 @@ if st.session_state.step == 'setup':
     
     **Instructions:**
     1.  **Application:** Upload your CV (PDF, DOCX or Image) and select a role/experience.
-    2.  **Submit:** Press 'Submit Application' below to start the CV Review process.
+    2.  **Submit:** Press 'Submit Application' below (in the sidebar) to start the CV Review process.
     3.  **Interview Flow:**
         * **CV Review:** We will analyze your document.
         * **Specialized Questions**
@@ -855,10 +837,10 @@ elif st.session_state.step == 'specialized_intro':
     st.title(f"Welcome to the Interview for {company}")
     st.subheader(f"Role: {position} ({experience})")
     
-    # 3. Company Image (Placeholder)
+    # 3. Company Image (Placeholder - Using a more thematic placeholder image)
     st.markdown(f"""
-    <div style="width: 100%; height: 300px; overflow: hidden; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
-        <img src="https://placehold.co/800x400/1e293b/f8fafc?text={company}+Headquarters" style="width: 100%; object-fit: cover;" alt="{company} Office">
+    <div style="width: 100%; max-width: 800px; height: 350px; margin: 0 auto; overflow: hidden; border-radius: 15px; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.5);">
+        <img src="https://placehold.co/800x400/475569/f8fafc?text={company}+Tech+Career" style="width: 100%; height: 100%; object-fit: cover;" alt="{company} Office">
     </div>
     """, unsafe_allow_html=True)
     
