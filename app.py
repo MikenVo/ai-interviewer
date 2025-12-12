@@ -173,27 +173,27 @@ def get_key(name):
 
 # --- Image Mapping ---
 def get_company_image_url(company):
-    """Returns a placeholder URL corresponding to the chosen company."""
-    # Note: These URLs are placeholders for actual company images/logos.
+    """Returns the specific image URL corresponding to the chosen company."""
+    # Updated to use the specific URLs provided by the user
     IMAGE_MAP = {
-        "Intel": "https://placehold.co/800x400/0071C5/FFFFFF?text=INTEL+HEADQUARTERS", # Blue/White
-        "META": "https://placehold.co/800x400/0078FF/FFFFFF?text=META+CAMPUS", # Meta Blue
-        "AMD": "https://placehold.co/800x400/AF272F/FFFFFF?text=AMD+INNOVATION+CENTER", # AMD Red
-        "NVIDIA": "https://placehold.co/800x400/76B900/FFFFFF?text=NVIDIA+HQ", # NVIDIA Green
-        "IBM": "https://placehold.co/800x400/0063FF/FFFFFF?text=IBM+RESEARCH", # IBM Blue
-        "Microsoft": "https://placehold.co/800x400/00A4EF/FFFFFF?text=MICROSOFT+CAMPUS", # Microsoft Blue
-        "VinAI Research": "https://placehold.co/800x400/004B8E/FFFFFF?text=VINAI+RESEARCH", # VinAI Blue
-        "xAI": "https://placehold.co/800x400/1E293B/FFFFFF?text=xAI+RESEARCH" # Dark/White
+        "Intel": "https://www.bworldonline.com/wp-content/uploads/2023/06/INTEL.jpg",
+        "META": "https://tse3.mm.bing.net/th/id/OIP.cvmymUgY_HfD6vq_DOWyagHaEK?cb=ucfimg2&ucfimg=1&rs=1&pid=ImgDetMain&o=7&rm=3",
+        "AMD": "https://assets.bwbx.io/images/users/iqjWHBFdfxIU/iwfj8JxwH8OU/v1/-1x-1.jpg",
+        "NVIDIA": "https://blogs.nvidia.com/wp-content/uploads/2024/04/nvidiaheadquarters.jpg",
+        "IBM": "https://smartermsp.com/wp-content/uploads/2022/06/ibm-announces-4000-qubits.jpeg",
+        "Microsoft": "https://tse2.mm.bing.net/th/id/OIP.WRNCcRO5IdflX7CrLmgp5AHaEK?cb=ucfimg2&ucfimg=1&rs=1&pid=ImgDetMain&o=7&rm=3",
+        "VinAI Research": "https://genk.mediacdn.vn/139269124445442048/2022/7/25/photo-2-16587163838621875578488-1658728106492-16587281065611814675573.jpg",
+        "xAI": "https://wreg.com/wp-content/uploads/sites/18/2024/07/xAI-memphis-4.jpg?resize=768"
     }
     # Use a more thematic placeholder if the company is not in the map
     return IMAGE_MAP.get(company, f"https://placehold.co/800x400/475569/f8fafc?text={company}+Tech+Career")
 
 def get_company_image_html(company):
-    """Generates the HTML for the company image placeholder."""
+    """Generates the HTML for the company image."""
     image_url = get_company_image_url(company)
     return f"""
     <div style="width: 100%; max-width: 800px; height: 350px; margin: 0 auto; overflow: hidden; border-radius: 15px; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.5);">
-        <img src="{image_url}" style="width: 100%; height: 100%; object-fit: cover;" alt="{company} Office">
+        <img src="{image_url}" style="width: 100%; height: 100%; object-fit: cover; object-position: center;" alt="{company} Office">
     </div>
     """
 
@@ -489,10 +489,12 @@ def parse_question_content(raw_text):
             
     question_text = "\n".join(question_lines).strip()
     
+    # Check if the text implies a long form answer or MC was explicitly requested but failed.
+    # We rely on the LLM prompt to correctly generate options for MC questions.
     if len(options) >= 2:
         return question_text, options
     else:
-        # If no options found, assume it's a long-form text answer question
+        # If no clear options were parsed, treat it as a typing/long-form question
         return raw_text, None
 
 def evaluate_interview(provider, api_key, cv_text, q_a_history, position, company_name):
@@ -716,12 +718,6 @@ with st.sidebar:
             ])
             st.session_state.experience = experience # Store experience in state
             
-            # 5. Job Description REMOVED AFTER SELECTION, as requested.
-            # st.markdown("### Job Description")
-            # st.write(f"**Applying to:** {st.session_state.target_company}")
-            # jd_text = get_job_description(position, st.session_state.target_company)
-            # st.info(jd_text)
-            
             # 6. Buttons
             st.markdown("---")
 
@@ -879,13 +875,17 @@ elif st.session_state.step == 'specialized_intro':
         start_interview = st.button("🚀 Start Interview", type="primary", use_container_width=True)
 
         if start_interview:
-            st.session_state.q_count = 3 if st.session_state.get('demo_mode', True) else 60
+            # FIX: Set specialized questions count to 3, regardless of demo mode
+            st.session_state.q_count_spec = 3 
             st.session_state.current_q_idx = 0
             st.session_state.step = 'specialized_questions'
             st.rerun()
             
 elif st.session_state.step == 'specialized_questions':
-    if st.session_state.current_q_idx < st.session_state.q_count:
+    # FIX: Use the new specific question count
+    q_count_spec = st.session_state.get('q_count_spec', 3) 
+    
+    if st.session_state.current_q_idx < q_count_spec:
         q_num = st.session_state.current_q_idx + 1
         
         spec_time = (2/3) if st.session_state.get('demo_mode', True) else 2
@@ -896,22 +896,26 @@ elif st.session_state.step == 'specialized_questions':
         current_provider = st.session_state.get('provider')
         current_key = st.session_state.get('user_api_key')
         
+        # Logic to determine question type for LLM prompt
+        if q_num <= 2:
+            # Questions 1 and 2: Multiple Choice
+            q_type_prompt = "Generate a challenging technical interview question (Multiple Choice with 4 options A, B, C, D)."
+        else:
+            # Question 3: Long Answer / Typing
+            q_type_prompt = "Generate a challenging, open-ended technical interview question that requires a long, typed answer (DO NOT include any multiple choice options)."
+
+
         # Generate Question
         if f"q_spec_{q_num}" not in st.session_state:
             with st.spinner(f"Generating Technical Question {q_num}..."):
                 prev_questions = [item['question'] for item in st.session_state.history.get('specialized', [])]
                 prev_q_text = " ".join(prev_questions)
                 
-                if st.session_state.get('demo_mode', True):
-                    prompt = f"""Generate a UNIQUE, SIMPLE, BEGINNER-FRIENDLY technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
-                    Keep it short and easy. 
-                    Ensure this question is DIFFERENT from these previous ones: {prev_q_text}
-                    Format: Question text followed by A) Option B) Option... Source: Basic Programming Concepts."""
-                else:
-                    prompt = f"""Generate a UNIQUE, CHALLENGING, IN-DEPTH technical interview question (Multiple Choice with 4 options A, B, C, D) for a {position} ({experience} level). 
-                    Focus on core concepts. 
-                    Ensure this question is DIFFERENT from these previous ones: {prev_q_text}
-                    Format: Question text followed by A) Option B) Option... Source: Cracking the Coding Interview."""
+                # Dynamic prompt based on question number
+                prompt = f"""{q_type_prompt} for a {position} ({experience} level). 
+                Focus on core concepts. 
+                Ensure this question is DIFFERENT from these previous ones: {prev_q_text}
+                If generating MC, Format: Question text followed by A) Option B) Option... Source: Cracking the Coding Interview."""
                 
                 q_text = call_llm(current_provider, "gemini-1.5-pro", current_key, prompt)
                 st.session_state[f"q_spec_{q_num}"] = q_text
@@ -922,14 +926,15 @@ elif st.session_state.step == 'specialized_questions':
         # Parse Question Content
         q_content, options = parse_question_content(st.session_state[f"q_spec_{q_num}"])
         
-        st.subheader(f"Question {q_num}/{st.session_state.q_count}")
+        st.subheader(f"Question {q_num}/{q_count_spec}")
         st.write(q_content)
         
+        # UI Enforcement: Radio for MC, Textbox for Typing Question
         if options:
-            # Display as radio buttons with A. B. C. D. format
+            # Radio for MC questions (Q1 and Q2)
             answer = st.radio("Select an Answer:", options, key=f"ans_spec_{q_num}", index=None)
         else:
-            # If no options, it must be a text-based question
+            # Textbox for Typing question (Q3)
             answer = st.text_area("Your Answer:", key=f"ans_spec_{q_num}")
         
         if st.button("Next Question"):
