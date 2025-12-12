@@ -550,11 +550,17 @@ def evaluate_interview(provider, api_key, cv_text, q_a_history, position, compan
     response = call_llm(provider, "gemini-1.5-pro", api_key, prompt)
     
     try:
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        # FIX: Clean up response text to remove conversational wrappers and control characters
+        cleaned_response = response.strip()
+        # Remove any leading/trailing markdown fences or conversational text
+        json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
         if json_match:
-            data = json.loads(json_match.group(0))
+            json_string = json_match.group(0)
         else:
-            data = json.loads(response)
+            # If no wrapper found, assume the raw response is the JSON (fallback)
+            json_string = cleaned_response
+            
+        data = json.loads(json_string)
             
         # --- Python-side Calculation for Vietnam Grading Scale (0-10) ---
         
@@ -595,7 +601,7 @@ def evaluate_interview(provider, api_key, cv_text, q_a_history, position, compan
         return {
             "cv_score": 0, "specialized_score": 0, "attitude_score": 0, "thinking_score": 0,
             "status": "NOT HIRED", 
-            "feedback_markdown": f"Error parsing AI evaluation: {e}. Raw response: {response[:500]}"
+            "feedback_markdown": f"### ❌ AI Evaluation Error\n\n**Issue:** The AI failed to generate a complete, parsable score card. \n\n**Reason:** {e}\n\n**Feedback:** Scores cannot be accurately determined. Please ensure all answers were provided and try the interview again."
         }
 
 # --- Javascript Timer Component ---
@@ -666,7 +672,6 @@ with st.sidebar:
     
     if uploaded_file:
         st.success("File Uploaded Successfully")
-        st.markdown("---")
         
         st.header("Job Information")
         
@@ -707,7 +712,7 @@ with st.sidebar:
         company_list = sorted(["META", "Intel", "AMD", "NVIDIA", "IBM", "Microsoft", "VinAI Research", "xAI"])
         company = st.selectbox("Company", company_list, index=None, placeholder="Select a company...")
 
-        # Only show details if position is selected
+        # Only show details if position and company are selected
         if position and company:
             st.session_state.position = position # Store position in state
             st.session_state.target_company = company # Store selected company in state
@@ -855,7 +860,8 @@ elif st.session_state.step == 'specialized_intro':
     # 3. Company Image (Uses specific image based on selection)
     st.markdown(get_company_image_html(company), unsafe_allow_html=True)
     
-    col1, col2 = st.columns([2, 1])
+    # Using columns for layout alignment, removing the extra blank column (col2)
+    col1, col_space = st.columns([3, 1])
     
     with col1:
         # 1. Brief story about the company
@@ -866,7 +872,8 @@ elif st.session_state.step == 'specialized_intro':
         st.markdown("### 📋 The Challenge Ahead")
         st.info(get_job_description(position, company))
     
-    with col2:
+    # Using a container for the "Ready" section to group elements
+    with st.container(border=True):
         st.markdown("### 🚦 Are You Ready?")
         # 4. The line: "Press "Start" if you are ready..."
         st.warning('Press **"Start"** if you are ready for the interview, or use the **"RESET"** button in the sidebar if you want to restart the application process.')
@@ -899,10 +906,10 @@ elif st.session_state.step == 'specialized_questions':
         # Logic to determine question type for LLM prompt
         if q_num <= 2:
             # Questions 1 and 2: Multiple Choice
-            q_type_prompt = "Generate a challenging technical interview question (Multiple Choice with 4 options A, B, C, D)."
+            q_type_prompt = "Generate a challenging technical interview question (Multiple Choice with 4 DISTINCT and DIVERSE options A, B, C, D). Ensure the question is entirely new and DIFFERENT from previous questions."
         else:
             # Question 3: Long Answer / Typing
-            q_type_prompt = "Generate a challenging, open-ended technical interview question that requires a long, typed answer (DO NOT include any multiple choice options)."
+            q_type_prompt = "Generate a challenging, open-ended technical interview question that requires a long, descriptive, typed answer (DO NOT include any multiple choice options). Ensure the question is entirely new and DIFFERENT from previous questions."
 
 
         # Generate Question
@@ -914,7 +921,7 @@ elif st.session_state.step == 'specialized_questions':
                 # Dynamic prompt based on question number
                 prompt = f"""{q_type_prompt} for a {position} ({experience} level). 
                 Focus on core concepts. 
-                Ensure this question is DIFFERENT from these previous ones: {prev_q_text}
+                Previous questions asked: {prev_q_text}
                 If generating MC, Format: Question text followed by A) Option B) Option... Source: Cracking the Coding Interview."""
                 
                 q_text = call_llm(current_provider, "gemini-1.5-pro", current_key, prompt)
@@ -926,17 +933,23 @@ elif st.session_state.step == 'specialized_questions':
         # Parse Question Content
         q_content, options = parse_question_content(st.session_state[f"q_spec_{q_num}"])
         
-        st.subheader(f"Question {q_num}/{q_count_spec}")
-        st.write(q_content)
+        # Using columns to align Question and Input
+        col_q, col_input = st.columns([3, 1])
+
+        with col_q:
+            st.subheader(f"Question {q_num}/{q_count_spec}")
+            st.write(q_content)
         
-        # UI Enforcement: Radio for MC, Textbox for Typing Question
-        if options:
-            # Radio for MC questions (Q1 and Q2)
-            answer = st.radio("Select an Answer:", options, key=f"ans_spec_{q_num}", index=None)
-        else:
-            # Textbox for Typing question (Q3)
-            answer = st.text_area("Your Answer:", key=f"ans_spec_{q_num}")
+        with st.container(border=True):
+            # UI Enforcement: Radio for MC, Textbox for Typing Question
+            if options:
+                # Radio for MC questions (Q1 and Q2) - MUST use radio
+                answer = st.radio("Select an Answer:", options, key=f"ans_spec_{q_num}", index=None)
+            else:
+                # Textbox for Typing question (Q3) - MUST use text box
+                answer = st.text_area("Your Answer:", key=f"ans_spec_{q_num}")
         
+        st.markdown("---")
         if st.button("Next Question"):
             if not answer:
                 st.warning("Please provide an answer.")
@@ -994,16 +1007,21 @@ elif st.session_state.step == 'attitude_questions':
         # Parse Question Content
         q_content, options = parse_question_content(st.session_state[f"q_att_{q_num}"])
         
-        st.subheader(f"Behavioral Question {q_num}/{st.session_state.q_count_att}")
-        st.write(q_content)
+        col_q, col_input = st.columns([3, 1])
+
+        with col_q:
+            st.subheader(f"Behavioral Question {q_num}/{st.session_state.q_count_att}")
+            st.write(q_content)
         
-        if options:
-            # Display as radio buttons with A. B. C. D. format
-            answer = st.radio("Select an Answer:", options, key=f"ans_att_{q_num}", index=None)
-        else:
-             # If no options, it must be a text-based question
-            answer = st.text_area("Your Answer:", height=150, key=f"ans_att_{q_num}")
+        with st.container(border=True):
+            if options:
+                # Display as radio buttons with A. B. C. D. format
+                answer = st.radio("Select an Answer:", options, key=f"ans_att_{q_num}", index=None)
+            else:
+                 # If no options, it must be a text-based question
+                answer = st.text_area("Your Answer:", height=150, key=f"ans_att_{q_num}")
         
+        st.markdown("---")
         if st.button("Next"):
             if not answer:
                 st.warning("Please provide an answer.")
@@ -1068,10 +1086,14 @@ elif st.session_state.step == 'coding_questions':
             key=f"lang_{q_num}",
             index=0) # Default to Python
         
-        # File Upload for Code
-        code_file = st.file_uploader("Upload Code File or Image", type=['py', 'cpp', 'java', 'js', 'go', 'rb', 'php', 'cs', 'swift', 'kt', 'png', 'jpg'], key=f"file_{q_num}")
-        code_text_input = st.text_area("Or type code here:", height=200, key=f"text_{q_num}")
+        # Using columns for file upload/text input alignment
+        col_file, col_space = st.columns([3, 1])
+
+        with col_file:
+            code_file = st.file_uploader("Upload Code File or Image", type=['py', 'cpp', 'java', 'js', 'go', 'rb', 'php', 'cs', 'swift', 'kt', 'png', 'jpg'], key=f"file_{q_num}")
+            code_text_input = st.text_area("Or type code here:", height=200, key=f"text_{q_num}")
         
+        st.markdown("---")
         if st.button("Submit Code"):
             if not code_file and not code_text_input:
                 st.warning("Please provide an answer.")
@@ -1171,4 +1193,5 @@ elif st.session_state.step == 'evaluation':
         
         st.markdown("---")
         st.markdown("### 📝 AI Feedback & Suggestions")
+        # Display the parsed/cleaned markdown feedback
         st.markdown(st.session_state.final_feedback)
