@@ -24,7 +24,8 @@ except ImportError:
     pass
 
 try:
-    import anthropic
+    # import anthropic # REMOVED: Claude is no longer used
+    pass
 except ImportError:
     pass
 
@@ -301,40 +302,41 @@ def _try_provider(provider, model_name, api_key, prompt, image_data):
             return f"OpenAI Error: {str(e)}"
 
     # --- Claude ---
-    elif provider == "Anthropic (Claude)":
-        try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=api_key)
+    # REMOVED ANTHROPIC/CLAUDE LOGIC TO AVOID COSTS
+    # elif provider == "Anthropic (Claude)":
+    #     try:
+    #         import anthropic
+    #         client = anthropic.Anthropic(api_key=api_key)
             
-            if image_data:
-                # Convert PIL Image to Base64
-                buffered = io.BytesIO()
-                image_data.save(buffered, format="JPEG")
-                img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    #         if image_data:
+    #             # Convert PIL Image to Base64
+    #             buffered = io.BytesIO()
+    #             image_data.save(buffered, format="JPEG")
+    #             img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_str}},
-                            {"type": "text", "text": prompt}
-                        ]
-                    }
-                ]
-            else:
-                messages = [{"role": "user", "content": prompt}]
+    #             messages = [
+    #                 {
+    #                     "role": "user",
+    #                     "content": [
+    #                         {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_str}},
+    #                         {"type": "text", "text": prompt}
+    #                     ]
+    #                 }
+    #             ]
+    #         else:
+    #             messages = [{"role": "user", "content": prompt}]
 
-            # Use Claude 3 Sonnet as a capable default for stability
-            model_to_use = "claude-3-sonnet-20240229"
+    #         # Use Claude 3 Sonnet as a capable default for stability
+    #         model_to_use = "claude-3-sonnet-20240229"
 
-            message = client.messages.create(
-                model=model_to_use,
-                max_tokens=2048, # Increased token limit for safety
-                messages=messages
-            )
-            return message.content[0].text
-        except Exception as e:
-            return f"Claude Error: {str(e)}"
+    #         message = client.messages.create(
+    #             model=model_to_use,
+    #             max_tokens=2048, # Increased token limit for safety
+    #             messages=messages
+    #         )
+    #         return message.content[0].text
+    #     except Exception as e:
+    #         return f"Claude Error: {str(e)}"
             
     return "Error: Unknown provider"
 
@@ -1085,7 +1087,7 @@ elif st.session_state.step == 'coding_questions':
         
         if st.button("Submit Code"):
             if not code_file and not code_text_input:
-                st.warning("Please upload a file or write code.")
+                st.warning("Please provide an answer.")
             else:
                 # Save answer
                 ans_content = code_text_input if code_text_input else f"File uploaded: {code_file.name}"
